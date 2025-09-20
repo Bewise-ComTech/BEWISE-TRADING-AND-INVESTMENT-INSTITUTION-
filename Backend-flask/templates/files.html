@@ -1,0 +1,260 @@
+<!-- files.html -->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Files — Crypto Training</title>
+<link rel="icon" href=" https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg ">
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:0;background:linear-gradient(180deg,#031025,#071024);color:#e6eef8}
+  header{display:flex;align-items:center;gap:12px;padding:12px;background:linear-gradient(90deg,#06203a,#08304d)}
+  .logo{height:36px}
+  .wrap{padding:18px;max-width:1100px;margin:auto}
+  .intro{opacity:0.9;margin-bottom:14px}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+  .card{background:#062035;padding:12px;border-radius:12px;position:relative;overflow:hidden}
+  .file-preview{width:100%;border-radius:8px;background:#04080b;display:flex;align-items:center;justify-content:center;min-height:160px;color:#cfefff;overflow:hidden}
+  .file-meta{font-weight:700;margin-top:10px}
+  .file-note{opacity:0.85;margin-top:6px;font-size:0.95rem}
+  iframe, img { max-width:100%; border-radius:8px; }
+  .no-preview{opacity:0.85;font-weight:800}
+
+  /* Modal styles (popup) */
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(2,6,23,0.6); display:none; align-items:center; justify-content:center; z-index:9999; }
+  .modal-panel{ background:#0b1220; padding:18px; border-radius:10px; width:92%; max-width:520px; box-shadow:0 12px 40px rgba(0,0,0,0.6); color:#e6eef8 }
+  .modal-title{ font-weight:800; margin-bottom:8px; font-size:1.05rem }
+  .modal-body{ margin-bottom:12px; color:#cfefff; line-height:1.3 }
+  .modal-actions{ display:flex; gap:8px; justify-content:flex-end; }
+  .btn-secondary{ background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfefff; padding:8px 10px; border-radius:8px; cursor:pointer }
+  .btn-primary{ background:linear-gradient(90deg,#06b6d4,#0891b2); color:#042a2b; padding:8px 12px; border-radius:8px; font-weight:800; cursor:pointer }
+
+  @media (max-width:520px){
+    .file-preview{min-height:120px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <img src=" https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg " class="logo" alt="logo">
+  <div>
+    <div style="font-weight:700;colour: green;">BEWISE TRADING AND INVESTMENT INSTITUTION</div>
+    <div style="font-size:12px;opacity:0.85">Files</div>
+  </div>
+</header>
+
+<div class="wrap">
+  <p class="intro">Resources uploaded by admin are listed below. Files that the browser can preview (images, PDFs) will be shown inline. Download is intentionally not provided on this page.</p>
+
+  <div id="grid" class="grid" aria-live="polite">
+    <!-- file cards will be injected here -->
+  </div>
+</div>
+
+<!-- Modal (pop-up) -->
+<div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
+  <div class="modal-panel" role="document" aria-live="polite" aria-modal="true">
+    <div class="modal-title" id="modalTitle">Title</div>
+    <div class="modal-body" id="modalBody">Message</div>
+    <div class="modal-actions" id="modalActions">
+      <button class="btn-secondary" id="modalCancel">Close</button>
+      <button class="btn-primary" id="modalOk" style="display:none">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(async function(){
+  // Modal helpers (replaces alert)
+  const backdrop = document.getElementById('modalBackdrop');
+  const titleEl = document.getElementById('modalTitle');
+  const bodyEl = document.getElementById('modalBody');
+  const okBtn = document.getElementById('modalOk');
+  const cancelBtn = document.getElementById('modalCancel');
+
+  function showMessage(title, message){
+    titleEl.innerText = title || '';
+    bodyEl.innerText = message || '';
+    okBtn.style.display = 'none';
+    cancelBtn.innerText = 'Close';
+    backdrop.style.display = 'flex';
+    backdrop.setAttribute('aria-hidden','false');
+    return new Promise(resolve=>{
+      function cleanup(){ cancelBtn.removeEventListener('click', onClose); backdrop.style.display='none'; backdrop.setAttribute('aria-hidden','true'); resolve(); }
+      function onClose(){ cleanup(); }
+      cancelBtn.addEventListener('click', onClose);
+    });
+  }
+
+  async function showError(msg){
+    await showMessage('Error', msg);
+  }
+
+  // compute fingerprint (same approach used on your other pages)
+  async function computeFP(){
+    let uuid = localStorage.getItem('training_device_uuid');
+    if(!uuid){
+      uuid = crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2));
+      localStorage.setItem('training_device_uuid', uuid);
+    }
+    const data = [
+      navigator.userAgent || '',
+      navigator.platform || '',
+      (navigator.languages || []).join(','),
+      screen.width + 'x' + screen.height + 'x' + screen.colorDepth,
+      Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+      uuid
+    ].join('||');
+    const enc = new TextEncoder().encode(data);
+    const hashBuf = await crypto.subtle.digest('SHA-256', enc);
+    return Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+
+  // basic fetch wrapper
+  async function safeJson(url, opts){
+    try {
+      const r = await fetch(url, opts);
+      if(!r.ok) return { ok: false, status: r.status, body: null };
+      const j = await r.json();
+      return { ok: true, body: j };
+    } catch (e) {
+      return { ok: false, error: e };
+    }
+  }
+
+  // Session & device check (like your other pages)
+  const fp = await computeFP();
+  const allowed = localStorage.getItem('training_allowed_device');
+  if(allowed && allowed !== fp){
+    await showMessage('Device locked', 'This installation is locked to another device.');
+    location.href = '/';
+    return;
+  }
+  try {
+    const chk = await (await fetch('/api/check_session')).json();
+    if(!chk.logged_in){
+      // if not logged in, redirect to login
+      location.href = '/';
+      return;
+    }
+  } catch (e) {
+    console.error('session check failed', e);
+    await showError('Unable to verify session. Redirecting to login.');
+    location.href = '/';
+    return;
+  }
+
+  // element refs
+  const grid = document.getElementById('grid');
+
+  // utility to get extension
+  function extFromFilename(name){
+    if(!name) return '';
+    const parts = name.split('.');
+    return parts.length>1 ? parts.pop().toLowerCase() : '';
+  }
+
+  // render single file card
+  function createFileCard(f){
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const previewWrap = document.createElement('div');
+    previewWrap.className = 'file-preview';
+
+    const filename = f.filename || '';
+    const title = f.title || filename || 'Untitled';
+    const ext = extFromFilename(filename);
+
+    // show inline preview for known types
+    if(['png','jpg','jpeg','gif','webp','bmp','svg'].includes(ext)){
+      const img = document.createElement('img');
+      img.alt = title;
+      img.src = '/view/file/' + encodeURIComponent(f.id); // use your view route (inline)
+      img.loading = 'lazy';
+      previewWrap.appendChild(img);
+    } else if(ext === 'pdf'){
+      const ifr = document.createElement('iframe');
+      ifr.src = '/view/file/' + encodeURIComponent(f.id);
+      ifr.style.width = '100%';
+      ifr.style.height = '260px';
+      ifr.setAttribute('aria-label', title);
+      previewWrap.appendChild(ifr);
+    } else {
+      // not previewable inline — show icon + filename
+      const box = document.createElement('div');
+      box.className = 'no-preview';
+      box.innerText = ext ? ext.toUpperCase() + ' file' : 'File';
+      previewWrap.appendChild(box);
+    }
+
+    const meta = document.createElement('div');
+    meta.className = 'file-meta';
+    meta.innerText = title;
+
+    const note = document.createElement('div');
+    note.className = 'file-note';
+    note.innerText = f.uploaded_at ? (new Date(f.uploaded_at)).toLocaleString() : '';
+
+    card.appendChild(previewWrap);
+    card.appendChild(meta);
+    card.appendChild(note);
+
+    return card;
+  }
+
+  // load files and render
+  async function loadFiles(){
+    grid.innerHTML = '<div style="opacity:0.8">Loading...</div>';
+    const res = await safeJson('/api/files', { credentials: 'same-origin' });
+    if(!res.ok){
+      grid.innerHTML = '';
+      if(res.status === 403){
+        await showMessage('Files unavailable', 'Files listing is restricted or unauthorized on the server.');
+      } else {
+        await showMessage('Files error', 'Unable to load files. Check server or network.');
+      }
+      return;
+    }
+    const list = Array.isArray(res.body) ? res.body : [];
+    if(list.length === 0){
+      grid.innerHTML = '<div style="opacity:0.8">No files yet.</div>';
+      return;
+    }
+    grid.innerHTML = '';
+    list.forEach(f => {
+      const card = createFileCard(f);
+      grid.appendChild(card);
+    });
+  }
+
+  // initial load
+  await loadFiles();
+
+  // UX protections (best-effort - cannot block OS-level capture)
+  document.addEventListener('contextmenu', e => e.preventDefault());
+  window.addEventListener('keydown', (e) => {
+    const k = e.key ? e.key.toLowerCase() : '';
+    if(k === 'printscreen' || (e.ctrlKey || e.metaKey) && (k === 's' || k === 'p')){
+      e.preventDefault(); e.stopPropagation();
+      // momentarily blank previews
+      document.querySelectorAll('.file-preview').forEach(p => {
+        const old = p.innerHTML;
+        p.innerHTML = '';
+        setTimeout(()=>p.innerHTML = old, 600);
+      });
+    }
+  }, true);
+  document.addEventListener('visibilitychange', ()=> {
+    if(document.visibilityState !== 'visible'){
+      document.querySelectorAll('iframe, img').forEach(el => el.style.filter = 'blur(6px)');
+    } else {
+      document.querySelectorAll('iframe, img').forEach(el => el.style.filter = 'none');
+    }
+  });
+
+})();
+</script>
+</body>
+  </html>
