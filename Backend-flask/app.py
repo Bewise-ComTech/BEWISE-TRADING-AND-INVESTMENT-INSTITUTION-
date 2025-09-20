@@ -298,7 +298,15 @@ def api_login():
     if p.revoked:
         return jsonify({"success": False, "error": "pin_revoked"}), 403
 
-    # assign on first use
+    # --- ADMIN SPECIAL CASE: never revoke admin, allow multi-device usage ---
+    if p.pin == ADMIN_PIN:
+        # create session for admin and return (do not bind device_id or revoke)
+        token = create_session(p.id, device_id)
+        resp = jsonify({"success": True, "message": "logged_in", "role": "admin"})
+        set_session_cookie(resp, token)
+        return resp
+
+    # assign on first use (non-admin)
     if not p.device_id:
         p.device_id = device_id
         p.ip = ip
@@ -316,11 +324,10 @@ def api_login():
         set_session_cookie(resp, token)
         return resp
 
-    # different device -> revoke
+    # different device -> revoke (non-admin)
     p.revoked = True
     db.session.add(p); db.session.commit()
     return jsonify({"success": False, "error": "revoked_due_to_multiple_devices", "message": "PIN revoked because it was used on another device."}), 403
-
 @app.route("/api/check_session")
 def api_check_session():
     token = request.cookies.get("session_token")
