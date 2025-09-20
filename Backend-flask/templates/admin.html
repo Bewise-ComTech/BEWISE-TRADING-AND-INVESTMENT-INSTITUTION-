@@ -446,8 +446,92 @@
     } finally { btnGenerate.disabled = false; }
   });
 
+
   // Upload video -> /api/admin/upload_video
   btnUpload.addEventListener('click', async ()=>{
     const title = (videoTitle.value || '').trim();
     const file = videoFile.files[0];
-    if(!title || !file){ uploadResult.innerText = 'Provide title and file'; await showMessage('Missing fields','Provide 
+    if(!title || !file){ uploadResult.innerText = 'Provide title and file'; await showMessage('Missing fields','Provide title and file'); return; }
+    uploadResult.innerText = 'Uploading...';
+    btnUpload.disabled = true;
+    try {
+      const fd = new FormData();
+      fd.append('title', title);
+      fd.append('video', file);
+      const r = await apiFetch('/admin/upload_video', {
+        method: 'POST',
+        body: fd
+      });
+      const j = await r.json();
+      if(r.ok && j.success){
+        uploadResult.innerText = 'Uploaded ✓';
+        videoTitle.value = '';
+        videoFile.value = '';
+        loadVideos();
+        await showMessage('Uploaded', 'Video uploaded successfully');
+      } else {
+        uploadResult.innerText = 'Upload failed: ' + (j.error || j.message || 'server');
+        console.error('upload_video response', j);
+        await showMessage('Error', 'Upload failed: ' + (j.error || j.message || 'server'));
+      }
+    } catch(e){
+      uploadResult.innerText = 'Network error';
+      console.error('upload_video error', e);
+      await showMessage('Network error', 'Network error while uploading video');
+    } finally { btnUpload.disabled = false; }
+  });
+
+  // Upload any file -> /api/admin/upload_file
+  btnUploadFile.addEventListener('click', async ()=>{
+    const title = (fileTitle.value || '').trim();
+    const file = anyFile.files[0];
+    if(!title || !file){ uploadFileResult.innerText = 'Provide title and file'; await showMessage('Missing fields','Provide title and file'); return; }
+    uploadFileResult.innerText = 'Uploading...';
+    btnUploadFile.disabled = true;
+    try {
+      const fd = new FormData();
+      fd.append('title', title);
+      fd.append('file', file);
+      const r = await apiFetch('/admin/upload_file', {
+        method: 'POST',
+        body: fd
+      });
+      const j = await r.json();
+      if(r.ok && j.success){
+        uploadFileResult.innerText = 'Uploaded ✓';
+        fileTitle.value = '';
+        anyFile.value = '';
+        loadVideos();
+        await showMessage('Uploaded', 'File uploaded successfully (saved as a video record)');
+      } else {
+        uploadFileResult.innerText = 'Upload failed: ' + (j.error || j.message || 'server');
+        console.error('upload_file response', j);
+        await showMessage('Error', 'Upload failed: ' + (j.error || j.message || 'server'));
+      }
+    } catch(e){
+      uploadFileResult.innerText = 'Network error';
+      console.error('upload_file error', e);
+      await showMessage('Network error', 'Network error while uploading file');
+    } finally { btnUploadFile.disabled = false; }
+  });
+
+  btnRefresh.addEventListener('click', ()=>{ loadPins(); loadVideos(); });
+
+  btnLogout.addEventListener('click', async ()=>{
+    const ok = await showConfirm('Logout admin', 'Logout admin?');
+    if(!ok) return;
+    try {
+      await apiFetch('/logout', { method: 'POST' });
+    } catch(e){ console.error('logout error', e); }
+    sessionStorage.removeItem('training_is_admin');
+    window.location.href = UI_BASE + '/';
+  });
+
+  // initial load
+  loadPins();
+  loadVideos();
+
+})();
+</script>
+</body>
+</html>
