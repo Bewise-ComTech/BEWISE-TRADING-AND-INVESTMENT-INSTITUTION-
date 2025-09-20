@@ -1,1 +1,18 @@
+# Core web framework
+Flask==3.1.2            # Pallets Flask stable (Aug 19 2025). 1
 
+# DB layer and ORM
+Flask-SQLAlchemy==3.1.1 # Flask extension for SQLAlchemy. 2
+SQLAlchemy==2.0.43      # SQLAlchemy 2.x series (ORM core). 3
+
+# PostgreSQL driver
+psycopg2-binary==2.9.10 # Postgres adapter (binary wheel). 4
+
+# Environment & config helpers
+python-dotenv==1.1.1    # Load .env files (optional but handy). 5
+
+# CORS (only if your frontend fetches across origins)
+Flask-Cors==6.0.1       # Simplifies Cross-Origin Resource Sharing. 6
+
+# Production WSGI server (Render expects this if Start Command uses gunicorn)
+gunicorn==22.0.0        # Production WSGI server; add to fix 'gunicorn: command not found'. 7
