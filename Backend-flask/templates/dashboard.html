@@ -1,0 +1,331 @@
+<!-- dashboard.html
+     Dashboard page (inline CSS + JS)
+     Checks session and ensures the device fingerprint matches the allowed device.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>dashboard</title>
+<link rel="icon" href="/logo.png">
+<!-- ADDED: Font Awesome so the <i class="fab ..."> icons in the footer are visible -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  /* overall page (unchanged intent) */
+  body{
+    margin:0;
+    font-family:system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+    background:linear-gradient(180deg,#031025,#071024);
+    color:#e6eef8;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+  header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:14px;
+    background:linear-gradient(90deg,#06203a,#08304d);
+  }
+  .logo{ height:36px }
+  .container{ padding:20px; max-width:980px; margin:auto }
+
+    footer{
+      text-align: center;
+      padding: 10px;
+      background-color: green;
+      border: 2px solid black;
+    border-radius:12px;
+    }
+
+
+  .social{ 
+    border:2px solid black;
+     padding:20px;
+    text-align:center;
+    border-radius:12px;
+  }
+
+    footer i {
+      margin: 1px;
+      font-size: 28px;
+      margin:15px;
+
+    }
+
+  /* CARD: keep centered layout but allow taller layout so buttons sit vertically in center */
+  .card{
+    background:#062035;
+    padding:32px;
+    border-radius:14px;
+    box-shadow:0 12px 30px rgba(2,6,23,0.6);
+    display:flex;
+    flex-direction:column;
+    align-items:center;            /* center horizontally */
+    justify-content:center;        /* center vertically inside card */
+    gap:18px;
+    min-height:56vh;               /* larger so buttons are centered on screen */
+  }
+.quotes{
+    background:#062035;
+    padding:32px;
+    border-radius:14px;
+    box-shadow:0 12px 30px rgba(2,6,23,0.6);
+    display:flex;
+    flex-direction:column;
+    align-items:center;            /* center horizontally */
+    justify-content:center;        /* center vertically inside card */
+    gap:18px;
+    min-height:56vh;               /* larger so buttons are centered on screen */
+  }
+.motivation{
+    background:#062035;
+    padding:32px;
+    border-radius:14px;
+    box-shadow:0 12px 30px rgba(2,6,23,0.6);
+    display:flex;
+    flex-direction:column;
+    align-items:center;            /* center horizontally */
+    justify-content:center;  
+font-size:6medium;              /* center vertically inside card */
+    gap:18px;
+    min-height:56vh;               /* larger so buttons are centered on screen */
+  }
+  h1 { margin:0 0 6px 0; font-size:1.45rem; }
+  p  { margin:0; opacity:0.92; text-align:center; max-width:820px; }
+
+  #status{ margin-top:6px; opacity:0.9; font-size:0.95rem; }
+
+  /* LINKS: fully vertical, centered, much bigger and tap-friendly */
+  .links {
+    width:100%;
+    display:flex;
+    flex-direction:column;  /* vertical stacking */
+    align-items:center;
+    gap:18px;
+    margin-top:14px;
+    padding-top:6px;
+  }
+
+  /* shared button style for links and buttons (bigger) */
+  .links a, .links button {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:92%;                /* large, leaves small side padding on wide screens */
+    max-width:620px;
+    padding:20px 26px;        /* larger tap target */
+    border-radius:16px;
+    font-size:1.45rem;        /* larger text */
+    font-weight:900;
+    text-decoration:none;
+    border:0;
+    cursor:pointer;
+    box-shadow:0 14px 36px rgba(0,0,0,0.45);
+    transition: transform .14s ease, box-shadow .14s ease;
+    color:#fff;
+    letter-spacing:0.35px;
+    text-align:center;
+  }
+
+  .links a:focus, .links button:focus {
+    outline:4px solid rgba(255,255,255,0.06);
+    outline-offset:4px;
+  }
+
+  .links a:hover, .links button:hover {
+    transform: translateY(-6px);
+    box-shadow:0 20px 48px rgba(0,0,0,0.55);
+  }
+
+  /* distinctive colors */
+  .courses-link {
+    background: linear-gradient(90deg,#1e88ff 0%, #0b63d6 100%); /* blue */
+  }
+  .payment-link {
+    background: linear-gradient(90deg,#ff6b6b 0%, #e53935 100%); /* red */
+  }
+  .admin-link {
+    background: linear-gradient(90deg,#34d399 0%, #10b981 100%); /* green */
+    color:#03321b; /* darker text for contrast on green */
+  }
+
+  /* Testimonials: GREEN and visually similar to admin but styled as "coming soon" */
+  .testimonials-link {
+    background: linear-gradient(90deg,#7ee3a6 0%, #4ade80 100%); /* lighter green */
+    color:#042616;
+    font-weight:900;
+    box-shadow:0 14px 36px rgba(2,6,23,0.20);
+    opacity:1;
+  }
+  /* Make it non-interactive (coming soon) but keep green look */
+  .testimonials-link[aria-disabled="true"]{
+    pointer-events:none;
+    cursor:default;
+    filter: saturate(0.96);
+    opacity:0.98;
+  }
+
+  /* Logout big and aligned with other controls */
+  button.logout {
+    width:92%;
+    max-width:620px;
+    padding:16px 20px;
+    border-radius:14px;
+    border:0;
+    cursor:pointer;
+    font-weight:800;
+    font-size:1.05rem;
+    background:linear-gradient(90deg,#ff8a8a,#ef4444);
+    color:#fff;
+    box-shadow:0 12px 30px rgba(0,0,0,0.38);
+  }
+  button.logout:hover { transform: translateY(-5px); }
+
+  /* Responsive adjustments */
+  @media (max-width:720px){
+    .card { padding:22px; min-height:62vh; gap:14px; }
+    .links a, .links button { width:96%; font-size:1.25rem; padding:16px 18px; max-width:520px; }
+    button.logout { width:96%; font-size:1rem; padding:12px 14px; }
+  }
+  @media (max-width:420px){
+    .card { padding:18px; min-height:64vh; }
+    .links a, .links button { font-size:1.12rem; padding:14px 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <img src=" https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg   " class="logo" alt="logo">
+  <div>
+    <div style="font-weight:700; color: green">BEWISE TRADING AND INVESTMENT INSTITUTION</div>
+
+</header>
+
+<div class="container">
+  <div class="card">
+    <h1 id="who">Welcome To Our Site👋</h1>
+    <p>If you are seen this page now, it means that you bought our course, kindly use the button below to have access to our courses.</p>
+
+    <!-- VERTICAL LINKS AREA (keeps same IDs so existing JS still works) -->
+    <div class="links">
+      <a class="courses-link" href="/course" id="coursesBtn" aria-label="Open Courses">Courses</a>
+      <a class="payment-link" href="/payment" id="paymentBtn" aria-label="Open Payment">Payment</a>
+
+      <!-- Admin link is still hidden by default; your script will toggle display when admin -->
+      <a id="adminLink" class="admin-link" href="/admin" style="display:none" aria-label="Open Admin">Admin</a>
+
+      <!-- Testimonials: green, coming soon (non-interactive) -->
+      <a class="testimonials-link" href="#" aria-disabled="true" title="Coming soon" aria-label="Testimonials coming soon">
+        Testimonials — Coming soon
+      </a>
+
+
+
+    <div id="status"></div>
+  </div>
+</div>
+<div class="quotes">
+
+<p><strong>
+<h2><em>🌟 Welcome to the Journey of Growth! 🌟</em></h2>
+<br><br>
+
+<em>Dear Student,</em><br><br>
+
+Congratulations on taking this bold step to invest in yourself. By joining this course, you have proven that you believe in your future and are ready to rise above limitations. Remember, education is not just about learning facts — it is about unlocking your potential, sharpening your mind, and creating opportunities that will change your life.
+<br><br>
+There will be challenges along the way, but every challenge is proof that you are moving forward. Stay consistent, stay focused, and never give up. Success does not come overnight, but with patience, discipline, and determination, it is certain.
+<br><br>
+<p>Always remind yourself:</p>
+<ul>
+<li>✨ You are capable.</li>
+<li>✨ You are worthy.</li>
+<li>✨ You are on the path to greatness.</li>
+<br> <br>
+We are honored to walk this journey with you. The knowledge you gain here is a seed — water it daily with effort, and soon it will grow into abundance. 🌱💡
+<br>
+The future is yours to create. Keep going — your success story starts NOW! 🚀
+</strong></p>
+<br><br>
+<img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" alt="bewise company image" width="auto" height="auto">
+</div>
+
+<div class="motivation">
+
+<p><strong style="font-size:20px;">
+<h2><em>🔥 Dear Champion,</em></h2>
+<br>
+You did something powerful — you chose to invest in your growth. Not everyone takes that step, but you did, and that already sets you apart. 🎉
+<br><br>
+As you go through this course, remember: consistency is stronger than talent, and discipline is stronger than motivation. If you stay committed, the knowledge you gain here will not just change your skills — it will transform your life.
+<br><br>
+Every page you read, every lesson you complete, is a brick added to the foundation of your success. Keep building. Keep believing. Keep pushing.
+<br><br>
+The road may not always be easy, but the reward will always be worth it. 🌟
+<br><br>
+Your future self will thank you for the decision you made today. 🚀
+</strong></p>
+<br>
+<img src="  https://i.postimg.cc/sX76BFwD/behnam-norouzi-mp11-hr-QXf8-unsplash.jpg " alt="beautiful image" width="auto" height="auto">
+</div>
+  <footer>
+    <div class="social">
+      <a href="https://facebook.com/profile.php?id=100081867991800" target="_blank"><i class="fab fa-facebook" style="color:#3b5998;"></i></a>
+      <a href="https://x.com/chidubemEz468?t=QhEOHmP-Gqc253LRMfbu_A&s=09" target="_blank"><i class="fab fa-twitter" style="color:#1DA1F2;"></i></a>
+      <a href="https://wa.me/qr/JYPUQLHYHEZAA1" target="_blank"><i class="fab fa-whatsapp" style="color:#25D366;"></i></a>
+      <a href="https://tiktok.com/@TraderDubem" target="_blank"><i class="fab fa-tiktok" style="color:#000;"></i></a>
+    </div><br>
+
+    <h3 style="color:black">&copy; Developed By Dubem Tech</h3>
+  </footer>
+
+<script>
+(async function(){
+  // compute local fingerprint same as authentication page
+  async function getFP(){
+    try {
+      let uuid = localStorage.getItem('training_device_uuid');
+      if(!uuid){ uuid = crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2)); localStorage.setItem('training_device_uuid', uuid); }
+      const vals = [navigator.userAgent, navigator.platform, (navigator.languages||[]).join(','), screen.width+'x'+screen.height+'x'+screen.colorDepth, Intl.DateTimeFormat().resolvedOptions().timeZone||'', uuid].join('||');
+      const enc = new TextEncoder().encode(vals);
+      const hash = await crypto.subtle.digest('SHA-256', enc);
+      return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+    } catch(e){ return localStorage.getItem('training_device_uuid') || 'local-fallback'; }
+  }
+
+  const fp = await getFP();
+  const allowed = localStorage.getItem('training_allowed_device');
+  if(allowed && allowed !== fp){
+    alert('This site is locked to another device. Redirecting to login.');
+    window.location.href = '/';
+    return;
+  }
+
+  // check server session
+  try {
+    const r = await fetch('/api/check_session');
+    const j = await r.json();
+    if(!j.logged_in){
+      // not logged in -> back to login
+      window.location.href = '/';
+      return;
+    }
+    document.getElementById('who').innerText = 'Welcome — device registered';
+    document.getElementById('status').innerText = 'Device ID (short): ' + fp.slice(0,8) + (sessionStorage.getItem('training_is_admin') ? ' — Admin' : '');
+    if(sessionStorage.getItem('training_is_admin')) document.getElementById('adminLink').style.display = 'inline-block';
+  } catch(e){
+    console.error(e);
+    alert('Server error. Try refreshing.');
+  }
+
+  document.getElementById('logoutBtn').addEventListener('click', async ()=>{
+    await fetch('/api/logout', { method:'POST' });
+    sessionStorage.removeItem('training_is_admin');
+    window.location.href = '/index';
+  });
+})();
+</script>
+</body>
+  </html>
