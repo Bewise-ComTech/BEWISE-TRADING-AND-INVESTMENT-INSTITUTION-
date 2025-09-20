@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Payments — Crypto Training</title>
+<style>
+ body{font-family:Arial;background:#f6f7fb;margin:0;padding:20px}
+ .wrap{max-width:900px;margin:auto}
+ .card{background:#fff;padding:16px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.06)}
+ .course{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid #eee}
+ .course:last-child{border-bottom:0}
+ .btn{background:#00c853;color:#fff;padding:8px 12px;border-radius:8px;border:0;cursor:pointer}
+ .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);z-index:999}
+ .modal.show{display:flex}
+ .modal-card{background:#fff;padding:18px;border-radius:12px;max-width:420px;width:92%}
+</style>
+</head>
+<body>
+ <div class="wrap">
+  <div class="card">
+    <h2>Available Courses</h2>
+    <div id="courses">
+      <!-- Example list; ideally fetched from backend /courses -->
+      <div class="course"><div><strong>Crypto Basics</strong><div style="color:#666">Price: ₦25,000</div></div><div><button class="btn pay" data-title="Crypto Basics" data-price="5000">Pay</button></div></div>
+      <div class="course"><div><strong>Trading 101</strong><div style="color:#666">Price: ₦70,000</div></div><div><button class="btn pay" data-title="Trading 101" data-price="10000">Pay</button></div></div>
+    </div>
+  </div>
+ </div>
+
+ <!-- pay modal -->
+ <div id="payModal" class="modal" aria-hidden="true">
+  <div class="modal-card">
+    <h3 id="payTitle">Pay</h3>
+    <p>Send payment to:</p>
+    <p><strong>Palmpay — 8167542829</strong><br>Ezeh Ebube Chidubem</p>
+    <div style="margin-top:8px">
+      <button id="copyAcc" class="btn">Copy Account</button>
+      <button id="paidBtn" class="btn" style="margin-left:8px;background:#00a0ff">I Paid</button>
+    </div>
+    <div style="margin-top:10px;text-align:right"><button id="closePay">Close</button></div>
+  </div>
+ </div>
+
+ <!-- success -->
+ <div id="success" class="modal"><div class="modal-card"><h3>Thanks!</h3><p id="successMsg"></p><div style="text-align:right"><button id="closeSuccess">OK</button></div></div></div>
+
+<script>
+document.querySelectorAll('.pay').forEach(b=>{
+  b.addEventListener('click', (e)=>{
+    const title = b.dataset.title, price = b.dataset.price;
+    document.getElementById('payTitle').textContent = `Pay for: ${title} — ₦${Number(price).toLocaleString()}`;
+    window.currentPay = {title, price};
+    document.getElementById('payModal').classList.add('show'); document.getElementById('payModal').setAttribute('aria-hidden','false');
+  });
+});
+
+document.getElementById('closePay').addEventListener('click', ()=> {
+  document.getElementById('payModal').classList.remove('show'); document.getElementById('payModal').setAttribute('aria-hidden','true');
+});
+
+document.getElementById('copyAcc').addEventListener('click', async ()=> {
+  try {
+    await navigator.clipboard.writeText('8167542829');
+    document.getElementById('copyAcc').textContent = 'Copied!';
+    setTimeout(()=> document.getElementById('copyAcc').textContent = 'Copy Account',1400);
+  } catch(e) { alert('Copy failed'); }
+});
+
+document.getElementById('paidBtn').addEventListener('click', ()=> {
+  // Here you might verify payment via backend; for now show success popup and store local tx
+  const p = window.currentPay || {title:'unknown', price:0};
+  const txs = JSON.parse(localStorage.getItem('transactions') || '[]');
+  txs.unshift({type:'Payment', description: p.title, amount: Number(p.price), date: (new Date()).toISOString()});
+  localStorage.setItem('transactions', JSON.stringify(txs));
+  document.getElementById('payModal').classList.remove('show');
+  const success = document.getElementById('success'); success.classList.add('show'); success.setAttribute('aria-hidden','false');
+  document.getElementById('successMsg').textContent = `Payment recorded for ${p.title} — ₦${Number(p.price).toLocaleString()}.`;
+});
+
+document.getElementById('closeSuccess').addEventListener('click', ()=> {
+  const success = document.getElementById('success'); success.classList.remove('show'); success.setAttribute('aria-hidden','true');
+});
+</script>
+</body>
+</html>
