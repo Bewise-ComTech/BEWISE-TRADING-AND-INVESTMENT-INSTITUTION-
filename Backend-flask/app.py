@@ -15,45 +15,38 @@ from jinja2 import TemplateNotFound
 # --------------- Configuration ---------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
-DB_PATH = os.path.join(BASE_DIR, "data.db")
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-# Ensure folders exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
-# Env-configurable
-# Changed default admin PIN to 811335 as requested
+# Env-configurable (default admin PIN set to 811335 as requested)
 ADMIN_PIN = os.environ.get("ADMIN_PIN", "811335")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", ADMIN_PIN)
 ALLOWED_DEVICE_HASH = os.environ.get("ALLOWED_DEVICE_HASH")   # optional lock-to-device
 SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(24))
 MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 200 * 1024 * 1024))
-COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"  # set to "0" for local http testing
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 
-RENDER_HOST = os.environ.get("RENDER_HOST", "bewise-trading-and-investment-institution.onrender.com")
-
-# --------------- App setup ---------------
-app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
-
-# ---------- Use Render Postgres DB (explicit link provided) ----------
-app.config["SQLALCHEMY_DATABASE_URI"] = (
+# Render/Postgres DB you gave
+# (You can also set DATABASE_URL as env variable and use that instead)
+POSTGRES_URL = (
     "postgresql://crypto_trading_ef73_user:ExqngrM4GrJX6FmefoA1g3BRPu2kF0tk@"
     "dpg-d37inupr0fns739ha5r0-a.oregon-postgres.render.com/crypto_trading_ef73"
 )
-# -------------------------------------------------------------------
 
+# --------------- App setup ---------------
+app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", POSTGRES_URL)
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.secret_key = SECRET_KEY
 
-# Allow CORS for API endpoints and support credentials (cookies)
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
-# logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("crypto_training")
 
@@ -79,7 +72,6 @@ class Video(db.Model):
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class File(db.Model):
-    """Generic non-video file uploads (documents, zips, images, etc)."""
     __tablename__ = "files"
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(512))
@@ -108,7 +100,6 @@ def now():
     return datetime.utcnow()
 
 def generate_pin():
-    """Generate a unique 6-digit PIN (tries up to a few times)."""
     for _ in range(30):
         candidate = "{:06d}".format(secrets.randbelow(900000) + 100000)
         if not Pin.query.filter_by(pin=candidate).first():
@@ -135,7 +126,14 @@ def validate_session(token):
             pass
         return None
     p = Pin.query.get(s.pin_id)
-    if not p or p.revoked:
+    # if pin revoked and not admin -> kill session
+    if not p:
+        try:
+            db.session.delete(s); db.session.commit()
+        except Exception:
+            pass
+        return None
+    if p.revoked and p.pin != ADMIN_PIN:
         try:
             db.session.delete(s); db.session.commit()
         except Exception:
@@ -144,7 +142,7 @@ def validate_session(token):
     return s
 
 def admin_auth_ok(req):
-    """Admin authorized if header matches ADMIN_PASSWORD OR session belongs to admin pin."""
+    # Header-based admin shortcut
     header = req.headers.get("X-ADMIN-PW")
     if header and header == ADMIN_PASSWORD:
         return True
@@ -157,16 +155,13 @@ def admin_auth_ok(req):
     return False
 
 def set_session_cookie(resp, token):
-    """Set httponly session cookie (path included)."""
     samesite_val = "None" if COOKIE_SECURE else "Lax"
-    # include path="/" to ensure cookie is sent for all routes
     resp.set_cookie("session_token", token, httponly=True, samesite=samesite_val, secure=COOKIE_SECURE, path="/")
     return resp
 
-# -------------- Init DB -----------------
+# -------------- Init DB & ensure admin PIN exists & non-revocable -----------------
 with app.app_context():
     db.create_all()
-    # Ensure admin PIN exists and is not revoked (force non-revocable)
     admin_obj = Pin.query.filter_by(pin=ADMIN_PIN).first()
     if not admin_obj:
         admin_obj = Pin(pin=ADMIN_PIN, note="admin-pin", created_at=now(), revoked=False)
@@ -185,14 +180,9 @@ def request_entity_too_large(e):
 
 @app.errorhandler(Exception)
 def handle_exception(e):
-    # Log full exception server-side
     logger.exception("Unhandled exception: %s", e)
-
-    # For API endpoints return JSON
     if request.path.startswith("/api/"):
         return jsonify({"error": "internal_server_error", "message": str(e), "success": False}), 500
-
-    # For non-API (HTML) requests return friendly HTML if possible
     try:
         return render_template("error.html", message=str(e)), 500
     except TemplateNotFound:
@@ -203,13 +193,8 @@ def handle_exception(e):
 
 # -------------- Page Routes & safe rendering --------------
 def safe_render(name):
-    """Render template name.html from templates or fallback to an alternate if needed.
-
-    For the authentication page we also accept index.html (to support renamed file).
-    """
     candidates = [f"{name}.html"]
     if name == "authentication":
-        # support projects that renamed the auth template to index.html (GitHub or static hosting)
         candidates.append("index.html")
     for tpl in candidates:
         try:
@@ -218,7 +203,6 @@ def safe_render(name):
             path = os.path.join(app.template_folder or TEMPLATES_DIR, tpl)
             if os.path.exists(path):
                 return send_from_directory(app.template_folder, tpl)
-    # if nothing found -> 404
     abort(404, description=f"Template not found: {name}.html")
 
 @app.route("/", methods=["GET"])
@@ -233,42 +217,22 @@ def authentication_page():
 def admin_page():
     return safe_render("admin")
 
-@app.route("/admin.html", methods=["GET"])
-def admin_html():
-    return safe_render("admin")
-
 @app.route("/dashboard", methods=["GET"])
 def dashboard_page():
-    return safe_render("dashboard")
-
-@app.route("/dashboard.html", methods=["GET"])
-def dashboard_html():
     return safe_render("dashboard")
 
 @app.route("/course", methods=["GET"])
 def course_page():
     return safe_render("course")
 
-@app.route("/course.html", methods=["GET"])
-def course_html():
-    return safe_render("course")
-
 @app.route("/payment", methods=["GET"])
 def payment_page():
-    return safe_render("payment")
-
-@app.route("/payment.html", methods=["GET"])
-def payment_html():
     return safe_render("payment")
 
 @app.route("/files", methods=["GET"])
 def files_page():
     return safe_render("files")
-@app.route("/files.html", methods=["GET"])
-def files_html():
-    return safe_render("files")
 
-# Serve logo or fallback svg
 @app.route("/logo.png")
 def logo():
     path = os.path.join(app.static_folder or STATIC_DIR, "logo.png")
@@ -292,14 +256,14 @@ def api_login():
     if not pin or len(pin) != 6 or not pin.isdigit():
         return jsonify({"success": False, "error": "invalid_pin_format"}), 400
 
-    # optional server-side device lock
     if ALLOWED_DEVICE_HASH and device_id and device_id != ALLOWED_DEVICE_HASH:
         return jsonify({"success": False, "error": "device_not_allowed", "message": "Installation locked to a specific device."}), 403
 
     p = Pin.query.filter_by(pin=pin).first()
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
-    # if pin is revoked and it's NOT the admin pin -> block
+
+    # Only treat revoked as blocking for non-admin PINs
     if p.revoked and p.pin != ADMIN_PIN:
         return jsonify({"success": False, "error": "pin_revoked"}), 403
 
@@ -321,10 +285,9 @@ def api_login():
         set_session_cookie(resp, token)
         return resp
 
-    # different device ->
-    # If it's the admin PIN, DO NOT revoke it. Allow admin to login from other devices (non-revocable).
+    # different device:
+    # If admin PIN -> do NOT revoke. Update assigned device (admin non-revocable).
     if p.pin == ADMIN_PIN:
-        # update device assignment to new device for admin (but do not revoke)
         p.device_id = device_id
         p.ip = ip
         p.assigned_at = now()
@@ -433,16 +396,15 @@ def api_admin_revoke_pin():
     p = Pin.query.get(pin_id)
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
-    # Prevent revoking the admin pin via admin endpoint as requested (admin non-revocable)
+    # Prevent admin PIN from being revoked
     if p.pin == ADMIN_PIN:
         return jsonify({"success": False, "error": "cannot_revoke_admin_pin", "message": "Admin PIN cannot be revoked."}), 403
     p.revoked = True
     db.session.add(p); db.session.commit()
     return jsonify({"success": True})
-# ---------------- New Admin endpoints -----------------
+
 @app.route("/api/admin/delete_pin", methods=["POST"])
 def api_admin_delete_pin():
-    """Permanently delete a PIN record (admin only)."""
     if not admin_auth_ok(request):
         return jsonify({"success": False, "error": "admin_auth_required"}), 403
     data = request.get_json() or {}
@@ -452,6 +414,9 @@ def api_admin_delete_pin():
     p = Pin.query.get(pin_id)
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
+    # Warning: allow deleting admin pin only if explicitly desired - here we prevent delete of admin pin
+    if p.pin == ADMIN_PIN:
+        return jsonify({"success": False, "error": "cannot_delete_admin_pin", "message": "Admin PIN cannot be deleted."}), 403
     try:
         db.session.delete(p)
         db.session.commit()
@@ -463,7 +428,6 @@ def api_admin_delete_pin():
 
 @app.route("/api/admin/delete_video", methods=["POST"])
 def api_admin_delete_video():
-    """Delete a video record and remove its file from uploads (admin only)."""
     if not admin_auth_ok(request):
         return jsonify({"success": False, "error": "admin_auth_required"}), 403
     data = request.get_json() or {}
@@ -473,33 +437,26 @@ def api_admin_delete_video():
     v = Video.query.get(video_id)
     if not v:
         return jsonify({"success": False, "error": "video_not_found"}), 404
-
-    # Build safe path (filename stored in DB already, so use it)
     filename = v.filename
     path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     try:
-        # remove DB record first, then file
         db.session.delete(v)
         db.session.commit()
     except Exception as exc:
         logger.exception("DB delete failed for video %s: %s", video_id, exc)
         db.session.rollback()
         return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
-
-    # Try to remove file (best-effort). If file missing, it's okay.
     try:
         if os.path.exists(path):
             os.remove(path)
     except Exception as exc:
-        # Log but return success because DB record is removed.
         logger.exception("Failed to remove video file %s: %s", path, exc)
         return jsonify({"success": True, "warning": "db_deleted_but_file_remove_failed", "message": str(exc)})
     return jsonify({"success": True})
 
-# -------------- API: Files (NEW & admin) -------------
+# Admin file endpoints (upload/list/delete)
 @app.route("/api/admin/upload_file", methods=["POST"])
 def api_admin_upload_file():
-    """Generic file upload (any file) — admin only. Saves to uploads/ and creates File record."""
     if not admin_auth_ok(request):
         return jsonify({"success": False, "error": "admin_auth_required"}), 403
     title = request.form.get("title", "").strip()
@@ -517,76 +474,29 @@ def api_admin_upload_file():
     except Exception as exc:
         logger.exception("upload_file failed: %s", exc)
         db.session.rollback()
-        # remove partial file if it exists
         try:
             if os.path.exists(path):
                 os.remove(path)
         except Exception:
             pass
         return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
-@app.route("/api/admin/files")
-def api_admin_files():
-    """List uploaded non-video files (admin only)."""
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    rows = File.query.order_by(File.uploaded_at.desc()).all()
-    data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
-    return jsonify(data)
-
-@app.route("/api/admin/delete_file", methods=["POST"])
-def api_admin_delete_file():
-    """Delete a file record and remove its file from uploads (admin only)."""
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    data = request.get_json() or {}
-    file_id = data.get("file_id")
-    if not file_id:
-        return jsonify({"success": False, "error": "missing_file_id"}), 400
-    frow = File.query.get(file_id)
-    if not frow:
-        return jsonify({"success": False, "error": "file_not_found"}), 404
-    filename = frow.filename
-    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    try:
-        db.session.delete(frow)
-        db.session.commit()
-    except Exception as exc:
-        logger.exception("DB delete failed for file %s: %s", file_id, exc)
-        db.session.rollback()
-        return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
-
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-    except Exception as exc:
-        logger.exception("Failed to remove file %s: %s", path, exc)
-        return jsonify({"success": True, "warning": "db_deleted_but_file_remove_failed", "message": str(exc)})
-    return jsonify({"success": True})
 
 @app.route("/api/files")
 def api_files():
-    """List uploaded files available to all users."""
     rows = File.query.order_by(File.uploaded_at.desc()).all()
     data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
     return jsonify(data)
 
-# ----- NEW: public file view route (serves inline for preview; no attachment header) -----
 @app.route("/view/file/<int:file_id>")
 def view_file(file_id):
-    """Serve file inline so browser can preview (PDFs/images) but do not force-download.
-       This is intentionally view-only; frontend should not show a download button.
-    """
     frow = File.query.get(file_id)
     if not frow:
         return "Not found", 404
     filename = frow.filename
-    # secure join to avoid path traversal
     file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     if not os.path.exists(file_path):
         return "File missing", 404
-    # send file inline; let send_from_directory set content-type
     resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], filename))
-    # prefer inline so browser opens the file if it can (pdf/images)
     resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     resp.headers["X-Content-Type-Options"] = "nosniff"
@@ -600,26 +510,4 @@ def api_payment_proof():
     course_title = request.form.get("course_title", "")
     f = request.files.get("proof")
     if not name or not f:
-        return jsonify({"success": False, "error": "missing_fields"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.static_folder, safe_name)
-    f.save(path)
-    pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
-    db.session.add(pay); db.session.commit()
-    return jsonify({"success": True})
-
-# -------------- Health -------------------
-@app.route("/api/health")
-def health():
-    try:
-        db.session.execute("SELECT 1")
-        return jsonify({"ok": True})
-    except Exception as e:
-        logger.exception("Health check failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-# --------------- Run ---------------------
-if __name__ == "__main__":
-    debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
+        retur
