@@ -1,43 +1,306 @@
+<!-- dashboard.html
+     Dashboard page (inline CSS + JS)
+     Checks session and ensures the device fingerprint matches the allowed device.
+     Shows two motivational messages (each preceded by an image) below the buttons.
+-->
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Dashboard — Crypto Training</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>BEWISE TRADING AND INVESTMENT INSTITUTION</title>
 <link rel="icon" href="/logo.png">
 <style>
-  body{margin:0;font-family:system-ui;background:#071024;color:#e6eef8}
-  header{padding:14px;background:linear-gradient(90deg,#06203a,#08304d);display:flex;align-items:center;gap:12px}
-  .container{padding:18px;max-width:900px;margin:18px auto}
-  a.btn{display:inline-block;padding:10px 12px;border-radius:8px;background:#06b6d4;color:#042a2b;font-weight:800;text-decoration:none;margin-right:8px}
+  body{
+    margin:0;
+    font-family:system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+    background:linear-gradient(180deg,#031025,#071024);
+    color:#e6eef8;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+  header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:14px;
+    background:linear-gradient(90deg,#06203a,#08304d);
+  }
+  .logo{ height:36px }
+  .container{ padding:20px; max-width:980px; margin:auto }
+
+  .card{
+    background:#062035;
+    padding:32px;
+    border-radius:14px;
+    box-shadow:0 12px 30px rgba(2,6,23,0.6);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:18px;
+    min-height:56vh;
+  }
+
+  h2 { margin:0 0 6px 0; font-size:1.45rem; }
+  p  { margin:0; opacity:0.92; text-align:center; max-width:820px; }
+
+  #status{ margin-top:6px; opacity:0.9; font-size:0.95rem; }
+
+  .links {
+    width:100%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:18px;
+    margin-top:14px;
+    padding-top:6px;
+  }
+
+  .links a, .links button {
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:92%;
+    max-width:620px;
+    padding:20px 26px;
+    border-radius:16px;
+    font-size:1.45rem;
+    font-weight:900;
+    text-decoration:none;
+    border:0;
+    cursor:pointer;
+    box-shadow:0 14px 36px rgba(0,0,0,0.45);
+    transition: transform .14s ease, box-shadow .14s ease;
+    color:#fff;
+    letter-spacing:0.35px;
+    text-align:center;
+  }
+
+  .links a:focus, .links button:focus {
+    outline:4px solid rgba(255,255,255,0.06);
+    outline-offset:4px;
+  }
+
+  .links a:hover, .links button:hover {
+    transform: translateY(-6px);
+    box-shadow:0 20px 48px rgba(0,0,0,0.55);
+  }
+
+  .courses-link {
+    background: linear-gradient(90deg,#1e88ff 0%, #0b63d6 100%);
+  }
+  .payment-link {
+    background: linear-gradient(90deg,#ff6b6b 0%, #e53935 100%);
+  }
+  .admin-link {
+    background: linear-gradient(90deg,#34d399 0%, #10b981 100%);
+    color:#03321b;
+  }
+
+  .testimonials-link {
+    background: linear-gradient(90deg,#7ee3a6 0%, #4ade80 100%);
+    color:#042616;
+    font-weight:900;
+    box-shadow:0 14px 36px rgba(2,6,23,0.20);
+    opacity:1;
+  }
+  .testimonials-link[aria-disabled="true"]{
+    pointer-events:none;
+    cursor:default;
+    filter: saturate(0.96);
+    opacity:0.98;
+  }
+
+  button.logout {
+    width:92%;
+    max-width:620px;
+    padding:16px 20px;
+    border-radius:14px;
+    border:0;
+    cursor:pointer;
+    font-weight:800;
+    font-size:1.05rem;
+    background:linear-gradient(90deg,#ff8a8a,#ef4444);
+    color:#fff;
+    box-shadow:0 12px 30px rgba(0,0,0,0.38);
+  }
+  button.logout:hover { transform: translateY(-5px); }
+
+  /* motivational section */
+  .motivation-wrap {
+    width:100%;
+    max-width:820px;
+    margin-top:20px;
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+    align-items:center;
+  }
+  .motivation{
+    width:100%;
+    background:#04182c;
+    border-radius:12px;
+    padding:18px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.35);
+  }
+  .motivation img{
+    display:block;
+    width:100%;
+    height:auto;
+    max-height:220px;
+    object-fit:cover;
+    border-radius:8px;
+    margin-bottom:12px;
+  }
+  .motivation p{
+    text-align:justify;
+    line-height:1.6;
+    color:#dff8ff;
+    margin:0;
+  }
+
+  @media (max-width:720px){
+    .card { padding:22px; min-height:62vh; gap:14px; }
+    .links a, .links button { width:96%; font-size:1.25rem; padding:16px 18px; max-width:520px; }
+    button.logout { width:96%; font-size:1rem; padding:12px 14px; }
+    .motivation img { max-height:180px; }
+  }
+  @media (max-width:420px){
+    .card { padding:18px; min-height:64vh; }
+    .links a, .links button { font-size:1.12rem; padding:14px 16px; }
+    .motivation img { max-height:160px; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" style="height:36px" alt="logo">
-  <div style="font-weight:700">BEWISE TRADING AND INVESTMENT INSTITUTION</div>
+  <img src="/logo.png" class="logo" alt="logo">
+  <div style="font-weight:700; color: green">BEWISE TRADING AND INVESTMENT INSTITUTION</div>
 </header>
+
 <div class="container">
-  <h2>Welcome</h2>
-  <p>This is your dashboard. From here you can go to the course content or payments.</p>
-  <a class="btn" href="/course">View Courses</a>
-  <a class="btn" href="/payment">Payments</a>
-  <div style="margin-top:20px">
-    <button id="btnLogout" style="padding:8px 10px;border-radius:8px;border:0;background:#ef4444;color:#fff;cursor:pointer">Logout</button>
+  <div class="card">
+    <h2 id="who">Welcome</h2>
+    <p>Use the buttons below to access courses, payment or admin (if you are admin).</p>
+
+    <div class="links">
+      <a class="courses-link" href="/course" id="coursesBtn" aria-label="Open Courses">Courses</a>
+      <a class="payment-link" href="/payment" id="paymentBtn" aria-label="Open Payment">Payment</a>
+
+      <!-- Admin link hidden by default; JS will reveal it for admins -->
+      <a id="adminLink" class="admin-link" href="/admin" style="display:none" aria-label="Open Admin">Admin</a>
+
+      <a class="testimonials-link" href="#" aria-disabled="true" title="Coming soon" aria-label="Testimonials coming soon">
+        Testimonials — Coming soon
+      </a>
+
+      <button class="logout" id="logoutBtn" aria-label="Logout">Logout</button>
+    </div>
+
+    <div id="status" aria-live="polite"></div>
+
+    <!-- Motivational messages: images before each paragraph, placed below the buttons as requested -->
+    <div class="motivation-wrap" aria-live="polite">
+      <div class="motivation" id="motivation1">
+        <img src="https://i.postimg.cc/XYxq0K7D/motivation-1.jpg" alt="Inspiration image 1">
+        <p>
+          Every successful trader started with a single step: the decision to learn. Trading crypto is less about chasing instant wins and more about building consistent habits — studying charts, learning risk management, and developing emotional discipline. Think of each lesson here as a tool: over time they stack into strategy, confidence, and real results. You will encounter ups and downs; that is normal. The best students turn every setback into a learning moment — analyzing what went wrong, adjusting their plan, and returning smarter. Stay patient. Keep journals of trades and decisions. Ask questions. Practice with small positions until your strategy and psychology align. This course is designed to give you reliable, practical building blocks — watch, rewatch, and apply. Your growth will be the sum of small, deliberate improvements repeated every day.
+        </p>
+      </div>
+
+      <div class="motivation" id="motivation2">
+        <img src="https://i.postimg.cc/8cJg2hQv/motivation-2.jpg" alt="Inspiration image 2">
+        <p>
+          You are not alone in this journey: a strong community and clear, consistent study beats shortcuts every time. As you deepen your knowledge, prioritize capital preservation and process over impulsive profits. Set realistic goals — daily study goals, weekly review goals, and monthly performance goals — and celebrate small wins. The true edge in trading comes from curiosity and persistence: read reliable sources, back-test ideas, and keep improving your mental game. When you feel overwhelmed, step back, revise your plan, and return with curiosity rather than fear. Use this platform to internalize sound trading habits, leverage the materials and videos uploaded by the instructor, and engage with the content thoughtfully. Over time, small disciplined actions compound into skill, confidence, and financial independence. Keep going — consistency is the one habit that separates learners from achievers.
+        </p>
+      </div>
+    </div>
+
   </div>
 </div>
+
 <script>
 (async function(){
-  async function apiFetch(path, opts = {}){
-    const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';
-    const RENDER_BASE = 'https://' + RENDER_HOST;
-    const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_BASE + '/api';
-    const final = Object.assign({ credentials:'include' }, opts);
-    const r = await fetch(API + path, final);
-    return r;
+  // compute fingerprint same as authentication page
+  async function getFingerprint(){
+    try {
+      let uuid = localStorage.getItem('training_device_uuid');
+      if(!uuid){
+        uuid = crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2));
+        localStorage.setItem('training_device_uuid', uuid);
+      }
+      const parts = [
+        navigator.userAgent || '',
+        navigator.platform || '',
+        (navigator.languages || []).join(','),
+        screen.width + 'x' + screen.height + 'x' + screen.colorDepth,
+        Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+        uuid
+      ].join('||');
+      const enc = new TextEncoder().encode(parts);
+      const hashBuf = await crypto.subtle.digest('SHA-256', enc);
+      return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    } catch(e) {
+      // fallback
+      return localStorage.getItem('training_device_uuid') || 'local-fallback';
+    }
   }
-  document.getElementById('btnLogout').addEventListener('click', async ()=>{
-    await apiFetch('/logout',{method:'POST'});
-    window.location.href='/';
+
+  const fp = await getFingerprint();
+  // If the app was locked to a device and this isn't the allowed device, kick back to login.
+  try {
+    const allowed = localStorage.getItem('training_allowed_device');
+    if(allowed && allowed !== fp){
+      alert('This installation is locked to another device. Redirecting to login.');
+      window.location.href = '/';
+      return;
+    }
+  } catch(e){
+    // ignore localStorage errors
+  }
+
+  // Check session with cookies (send credentials)
+  try {
+    const r = await fetch('/api/check_session', { credentials: 'include' });
+    if(!r.ok){
+      // try to parse body for friendly message, otherwise redirect
+      window.location.href = '/';
+      return;
+    }
+    const j = await r.json();
+    if(!j.logged_in){
+      window.location.href = '/';
+      return;
+    }
+    // show device id short and admin status
+    const short = fp ? fp.slice(0,8) : 'unknown';
+    const statusEl = document.getElementById('status');
+    statusEl.textContent = 'Device ID (short): ' + short + (j.is_admin ? ' — Admin' : '');
+    // reveal admin link if server reports admin
+    if(j.is_admin){
+      document.getElementById('adminLink').style.display = 'inline-block';
+      sessionStorage.setItem('training_is_admin', '1');
+    } else {
+      sessionStorage.removeItem('training_is_admin');
+    }
+    // set heading to be more personal
+    document.getElementById('who').innerText = 'Welcome — device registered';
+  } catch(e){
+    console.error('session check failed', e);
+    alert('Unable to verify session. Redirecting to login.');
+    window.location.href = '/';
+    return;
+  }
+
+  // Logout handler
+  document.getElementById('logoutBtn').addEventListener('click', async ()=>{
+    try {
+      await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+    } catch(e){
+      console.warn('logout network error', e);
+    }
+    sessionStorage.removeItem('training_is_admin');
+    window.location.href = '/';
   });
 })();
 </script>
