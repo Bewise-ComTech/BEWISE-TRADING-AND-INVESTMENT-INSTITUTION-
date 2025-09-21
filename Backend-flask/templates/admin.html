@@ -22,31 +22,16 @@
   .error { color: #ffb4b4; }
   .ok { color: #baf7ff; }
   .small-muted { font-size:12px; opacity:0.85; }
-
-  /* Modal styles */
   .modal-backdrop{ position:fixed; inset:0; background:rgba(2,6,23,0.6); display:none; align-items:center; justify-content:center; z-index:9999; }
   .modal-panel{ background:#0b1220; padding:18px; border-radius:10px; width:96%; max-width:520px; box-shadow:0 12px 40px rgba(0,0,0,0.6); color:#e6eef8 }
-  .modal-title{ font-weight:800; margin-bottom:8px; font-size:1.05rem }
-  .modal-body{ margin-bottom:12px; color:#cfefff; line-height:1.3 }
-  .modal-actions{ display:flex; gap:8px; justify-content:flex-end; }
-  .btn-secondary{ background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfefff; padding:8px 10px; border-radius:8px; cursor:pointer }
-  .btn-primary{ background:var(--accent); color:#042a2b; padding:8px 12px; border-radius:8px; font-weight:800; cursor:pointer }
-  .btn-danger{ background:var(--danger); color:white; padding:8px 12px; border-radius:8px; font-weight:800; cursor:pointer }
-
-  /* small action buttons */
   .btn-small { padding:6px 8px; font-size:13px; border-radius:8px; }
   .btn-muted { background:#6b7280; color:#fff; border:0; }
-
-  /* keep refresh & logout on same line */
-  .top-actions button { margin-left:8px; }
 </style>
 </head>
 <body>
 <header>
   <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" class="logo" alt="logo">
-  <div>
-    <div style="font-weight:700">BEWISE TRADING AND INVESTMENT INSTITUTION</div>
-  </div>
+  <div><div style="font-weight:700">BEWISE TRADING AND INVESTMENT INSTITUTION</div></div>
 </header>
 
 <div class="container" id="app">
@@ -99,139 +84,37 @@
       <div id="videosArea">Loading videos...</div>
     </div>
   </div>
-
-  <div class="card" style="margin-top:12px">
-    <h3 style="margin:0 0 8px">Notes & Tips</h3>
-    <ul>
-      <li class="small-muted">To lock the entire app to your device: compute your device fingerprint (see instructions below) and set the value as <code>ALLOWED_DEVICE_HASH</code> in Render environment variables.</li>
-      <li class="small-muted">Files are stored in <code>/uploads</code> and the SQLite DB is <code>data.db</code>. For production use move to Postgres + object storage.</li>
-    </ul>
-    <div class="hint">Device fingerprint JS (run on your phone's console to get it): <pre style="white-space:pre-wrap;background:#0b1220;padding:8px;border-radius:6px;color:#cfefff">
-(async ()=>{
-  let uuid = localStorage.getItem('training_device_uuid');
-  if(!uuid){ uuid = crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2)); localStorage.setItem('training_device_uuid', uuid); }
-  const data = [navigator.userAgent||'', navigator.platform||'', (navigator.languages||[]).join(','), screen.width+'x'+screen.height+'x'+screen.colorDepth, Intl.DateTimeFormat().resolvedOptions().timeZone||'', uuid].join('||');
-  const enc = new TextEncoder().encode(data);
-  const hashBuf = await crypto.subtle.digest('SHA-256', enc);
-  const fp = Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-  console.log("device fingerprint:", fp);
-  alert("device fingerprint: " + fp);
-})();
-      </pre></div>
-  </div>
 </div>
 
-<!-- Modal: for messages and confirm -->
 <div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
-  <div class="modal-panel" role="document" aria-live="polite">
-    <div class="modal-title" id="modalTitle">Title</div>
-    <div class="modal-body" id="modalBody">Body</div>
-    <div class="modal-actions" id="modalActions">
-      <button class="btn-secondary" id="modalCancel">Cancel</button>
-      <button class="btn-primary" id="modalOk">OK</button>
-    </div>
+  <div class="modal-panel">
+    <div id="modalTitle" style="font-weight:800;margin-bottom:8px">Title</div>
+    <div id="modalBody" style="margin-bottom:12px"></div>
+    <div style="text-align:right"><button id="modalOk" class="btn-small">OK</button></div>
   </div>
 </div>
 
 <script>
 (async function(){
-  // ----- configure your Render host here (do not change otherwise) -----
   const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';
   const RENDER_BASE = 'https://' + RENDER_HOST;
   const RENDER_API = RENDER_BASE + '/api';
-  // ---------------------------------------------------------------------
-
-  // If served from Render host use relative /api; otherwise use absolute Render API
   const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_API;
   const UI_BASE = (location.hostname === RENDER_HOST) ? '' : RENDER_BASE;
 
-  // DOM refs
-  const pinsArea = document.getElementById('pinsArea');
-  const videosArea = document.getElementById('videosArea');
-  const btnGenerate = document.getElementById('btnGenerate');
-  const noteInput = document.getElementById('noteInput');
-  const generateResult = document.getElementById('generateResult');
-  const btnUpload = document.getElementById('btnUpload');
-  const videoTitle = document.getElementById('videoTitle');
-  const videoFile = document.getElementById('videoFile');
-  const uploadResult = document.getElementById('uploadResult');
-  const btnRefresh = document.getElementById('btnRefresh');
-  const btnLogout = document.getElementById('btnLogout');
+  const pinsArea = document.getElementById('pinsArea'), videosArea = document.getElementById('videosArea'),
+        btnGenerate = document.getElementById('btnGenerate'), noteInput = document.getElementById('noteInput'),
+        generateResult = document.getElementById('generateResult'), btnUpload = document.getElementById('btnUpload'),
+        videoTitle = document.getElementById('videoTitle'), videoFile = document.getElementById('videoFile'),
+        uploadResult = document.getElementById('uploadResult'), btnRefresh = document.getElementById('btnRefresh'),
+        btnLogout = document.getElementById('btnLogout'), btnUploadFile = document.getElementById('btnUploadFile'),
+        anyFile = document.getElementById('anyFile'), fileTitle = document.getElementById('fileTitle'),
+        uploadFileResult = document.getElementById('uploadFileResult');
 
-  // new file upload refs
-  const btnUploadFile = document.getElementById('btnUploadFile');
-  const anyFile = document.getElementById('anyFile');
-  const fileTitle = document.getElementById('fileTitle');
-  const uploadFileResult = document.getElementById('uploadFileResult');
-
-  // modal refs & helpers
-  const backdrop = document.getElementById('modalBackdrop');
-  const modalTitle = document.getElementById('modalTitle');
-  const modalBody = document.getElementById('modalBody');
-  const modalActions = document.getElementById('modalActions');
-  const modalOk = document.getElementById('modalOk');
-  const modalCancel = document.getElementById('modalCancel');
-
-  function showModal(title, message, { showCancel=false, okText='OK', cancelText='Cancel', okClass='btn-primary', cancelClass='btn-secondary' } = {}){
-    modalTitle.innerText = title || '';
-    modalBody.innerText = message || '';
-    modalOk.innerText = okText;
-    modalCancel.innerText = cancelText;
-    modalOk.className = okClass;
-    modalCancel.className = cancelClass;
-    modalCancel.style.display = showCancel ? 'inline-block' : 'none';
-    backdrop.style.display = 'flex';
-    backdrop.setAttribute('aria-hidden', 'false');
-    return new Promise((resolve) => {
-      function cleanup(){
-        modalOk.removeEventListener('click', onOk);
-        modalCancel.removeEventListener('click', onCancel);
-        backdrop.style.display = 'none';
-        backdrop.setAttribute('aria-hidden', 'true');
-      }
-      function onOk(){
-        cleanup();
-        resolve(true);
-      }
-      function onCancel(){
-        cleanup();
-        resolve(false);
-      }
-      modalOk.addEventListener('click', onOk);
-      modalCancel.addEventListener('click', onCancel);
-    });
-  }
-
-  function showMessage(title, message){
-    return showModal(title, message, { showCancel:false, okText:'OK', cancelText:'', okClass:'btn-primary' });
-  }
-  async function showConfirm(title, message){
-    return await showModal(title, message, { showCancel:true, okText:'Yes', cancelText:'No', okClass:'btn-danger', cancelClass:'btn-secondary' });
-  }
-
-  async function computeFingerprint(){
-    let uuid = localStorage.getItem('training_device_uuid');
-    if(!uuid){
-      uuid = (crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2)));
-      localStorage.setItem('training_device_uuid', uuid);
-    }
-    const parts = [
-      navigator.userAgent || '',
-      navigator.platform || '',
-      (navigator.languages || []).join(','),
-      screen.width + 'x' + screen.height + 'x' + screen.colorDepth,
-      Intl.DateTimeFormat().resolvedOptions().timeZone || '',
-      uuid
-    ].join('||');
-    const enc = new TextEncoder().encode(parts);
-    const hashBuf = await crypto.subtle.digest('SHA-256', enc);
-    return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
-  }
-
-  const fp = await computeFingerprint();
+  const modalBackdrop = document.getElementById('modalBackdrop'), modalTitle = document.getElementById('modalTitle'), modalBody = document.getElementById('modalBody'), modalOk = document.getElementById('modalOk');
+  function showMessage(title, message){ modalTitle.innerText = title; modalBody.innerText = message; modalBackdrop.style.display = 'flex'; return new Promise((res)=>{ modalOk.onclick = ()=>{ modalBackdrop.style.display='none'; res(true); }; }); }
 
   async function apiFetch(path, opts = {}){
-    // path should start with '/admin/...' or '/videos' etc.
     const url = API + path;
     const finalOpts = Object.assign({ credentials: 'include' }, opts);
     try {
@@ -243,8 +126,7 @@
       }
       return res;
     } catch(err){
-      console.error('apiFetch error', url, err);
-      throw err;
+      console.error('apiFetch error', url, err); throw err;
     }
   }
 
@@ -253,15 +135,12 @@
       const r = await apiFetch('/check_session');
       const j = await r.json();
       return j;
-    }catch(e){
-      return { logged_in: false };
-    }
+    }catch(e){ return { logged_in:false }; }
   }
 
-  // initial session check
   const session = await checkSession();
   if(!session.logged_in || !session.is_admin){
-    await showMessage('Admin required', 'Admin access requires you to login with admin PIN (891959) on this device first. Redirecting to login.');
+    await showMessage('Admin required', 'Admin access requires you to login with admin PIN (811335) on this device first. Redirecting to login.');
     window.location.href = UI_BASE + '/';
     return;
   }
@@ -271,11 +150,7 @@
     try {
       const r = await apiFetch('/admin/pins');
       const j = await r.json();
-      if(!Array.isArray(j)){
-        pinsArea.innerHTML = '<div class="error">Failed to load pins</div>';
-        console.error('unexpected pins response', j);
-        return;
-      }
+      if(!Array.isArray(j)){ pinsArea.innerHTML = '<div class="error">Failed to load pins</div>'; return; }
       const table = document.createElement('table');
       table.innerHTML = '<thead><tr><th>ID</th><th>PIN</th><th>Note</th><th>Device</th><th>IP</th><th>Revoked</th><th>Action</th></tr></thead>';
       const tbody = document.createElement('tbody');
@@ -284,13 +159,12 @@
         tr.innerHTML = `<td>${p.id}</td><td>${p.pin}</td><td>${p.note||''}</td><td style="max-width:180px;word-break:break-word">${p.device_id||''}</td><td>${p.ip||''}</td><td>${p.revoked? 'YES':''}</td>`;
         const td = document.createElement('td');
 
-        // Revoke button
         if(!p.revoked){
           const btn = document.createElement('button');
           btn.className = 'btn-small';
           btn.innerText = 'Revoke';
           btn.addEventListener('click', async ()=>{
-            const ok = await showConfirm('Revoke PIN', 'Revoke PIN ' + p.pin + ' ?');
+            const ok = confirm('Revoke PIN ' + p.pin + ' ?');
             if(!ok) return;
             btn.disabled = true;
             try {
@@ -301,48 +175,33 @@
               });
               const jr = await rr.json();
               if(rr.ok && jr.success){
-                await showMessage('Revoked', 'PIN revoked');
+                alert('PIN revoked');
                 loadPins();
               } else {
-                await showMessage('Error', 'Failed to revoke: ' + (jr.error || jr.message || 'server'));
+                alert('Failed to revoke: ' + (jr.error || jr.message || 'server'));
               }
-            } catch(err){ await showMessage('Network error', 'Network error while revoking'); console.error(err); }
+            } catch(err){ alert('Network error while revoking'); console.error(err); }
             btn.disabled = false;
           });
           td.appendChild(btn);
         } else {
-          const span = document.createElement('span');
-          span.innerText = '-';
-          td.appendChild(span);
+          const span = document.createElement('span'); span.innerText = '-'; td.appendChild(span);
         }
 
-        // Delete button -> /api/admin/delete_pin
-        const del = document.createElement('button');
-        del.className = 'btn-small btn-muted';
-        del.style.marginLeft = '8px';
-        del.innerText = 'Delete';
+        const del = document.createElement('button'); del.className='btn-small btn-muted'; del.style.marginLeft='8px'; del.innerText='Delete';
         del.addEventListener('click', async ()=>{
-          const ok = await showConfirm('Delete PIN', 'Delete PIN record (this will remove it permanently) ?');
+          const ok = confirm('Delete PIN record?');
           if(!ok) return;
           del.disabled = true;
           try {
-            const rr = await apiFetch('/admin/delete_pin', {
-              method:'POST',
-              headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({ pin_id: p.id })
-            });
+            const rr = await apiFetch('/admin/delete_pin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pin_id: p.id })});
             if(rr.status === 404){
-              await showMessage('Not available', 'Delete endpoint not available on server. Backend must implement /api/admin/delete_pin.');
+              alert('Delete endpoint not available on server.');
             } else {
               const jr = await rr.json();
-              if(rr.ok && jr.success){
-                await showMessage('Deleted', 'PIN deleted');
-                loadPins();
-              } else {
-                await showMessage('Error', 'Failed to delete: ' + (jr.error || jr.message || 'server'));
-              }
+              if(rr.ok && jr.success){ alert('Deleted'); loadPins(); } else { alert('Failed to delete: ' + (jr.error || jr.message || 'server')); }
             }
-          } catch(err){ await showMessage('Network error', 'Network error while deleting PIN'); console.error(err); }
+          } catch(err){ alert('Network error while deleting PIN'); console.error(err); }
           del.disabled = false;
         });
         td.appendChild(del);
@@ -353,21 +212,15 @@
       table.appendChild(tbody);
       pinsArea.innerHTML = '';
       pinsArea.appendChild(table);
-    } catch(e){
-      pinsArea.innerHTML = '<div class="error">Error loading pins</div>';
-      console.error('loadPins error', e);
-    }
+    } catch(e){ pinsArea.innerHTML = '<div class="error">Error loading pins</div>'; console.error('loadPins error', e); }
   }
 
   async function loadVideos(){
     videosArea.innerText = 'Loading videos...';
     try {
-      const r = await apiFetch('/videos'); // backend: /api/videos
+      const r = await apiFetch('/videos');
       const j = await r.json();
-      if(!Array.isArray(j)){
-        videosArea.innerHTML = '<div class="error">Failed to load videos</div>';
-        return;
-      }
+      if(!Array.isArray(j)){ videosArea.innerHTML = '<div class="error">Failed to load videos</div>'; return; }
       const table = document.createElement('table');
       table.innerHTML = '<thead><tr><th>ID</th><th>Title</th><th>Uploaded</th><th>Action</th></tr></thead>';
       const tbody = document.createElement('tbody');
@@ -375,161 +228,81 @@
         const tr = document.createElement('tr');
         tr.innerHTML = `<td>${v.id}</td><td>${v.title}</td><td>${v.uploaded_at||''}</td>`;
         const td = document.createElement('td');
-        // Delete button for video -> /api/admin/delete_video
-        const del = document.createElement('button');
-        del.className = 'btn-small btn-muted';
-        del.innerText = 'Delete';
+        const del = document.createElement('button'); del.className='btn-small btn-muted'; del.innerText='Delete';
         del.addEventListener('click', async ()=>{
-          const ok = await showConfirm('Delete video', 'Delete video "' + v.title + '" ?');
+          const ok = confirm('Delete video "' + v.title + '" ?');
           if(!ok) return;
           del.disabled = true;
           try {
-            const rr = await apiFetch('/admin/delete_video', {
-              method:'POST',
-              headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({ video_id: v.id })
-            });
-            if(rr.status === 404){
-              await showMessage('Not available', 'Delete endpoint not available on server. Backend must implement /api/admin/delete_video.');
-            } else {
+            const rr = await apiFetch('/admin/delete_video', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ video_id: v.id })});
+            if(rr.status === 404) alert('Delete endpoint not available on server.');
+            else {
               const jr = await rr.json();
-              if(rr.ok && jr.success){
-                await showMessage('Deleted', 'Video deleted');
-                loadVideos();
-              } else {
-                await showMessage('Error', 'Failed to delete: ' + (jr.error || jr.message || 'server'));
-              }
+              if(rr.ok && jr.success){ alert('Deleted'); loadVideos(); } else { alert('Failed to delete: ' + (jr.error || jr.message || 'server')); }
             }
-          } catch(err){ await showMessage('Network error', 'Network error while deleting video'); console.error(err); }
+          } catch(err){ alert('Network error while deleting video'); console.error(err); }
           del.disabled = false;
         });
         td.appendChild(del);
-
         tr.appendChild(td);
         tbody.appendChild(tr);
       });
       table.appendChild(tbody);
       videosArea.innerHTML = '';
       videosArea.appendChild(table);
-    } catch(e){
-      videosArea.innerHTML = '<div class="error">Error loading videos</div>';
-      console.error('loadVideos error', e);
-    }
+    } catch(e){ videosArea.innerHTML = '<div class="error">Error loading videos</div>'; console.error('loadVideos error', e); }
   }
 
-  // Generate PIN
   btnGenerate.addEventListener('click', async ()=>{
     const note = (noteInput.value || '').slice(0,200);
     generateResult.innerText = 'Generating...';
     btnGenerate.disabled = true;
     try {
       const r = await apiFetch('/admin/generate_pin', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ note })
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ note })
       });
       const j = await r.json();
-      if(r.ok && j.success){
-        generateResult.innerText = 'New PIN: ' + j.pin;
-        noteInput.value = '';
-        loadPins();
-        await showMessage('PIN generated', 'New PIN: ' + j.pin);
-      } else {
-        generateResult.innerText = 'Error: ' + (j.error || j.message || 'server');
-        console.error('generate_pin response', j);
-        await showMessage('Error', 'Failed to generate PIN: ' + (j.error || j.message || 'server'));
-      }
-    } catch(e){
-      generateResult.innerText = 'Network error';
-      console.error('generate_pin error', e);
-      await showMessage('Network error', 'Network error while generating PIN');
-    } finally { btnGenerate.disabled = false; }
+      if(r.ok && j.success){ generateResult.innerText = 'New PIN: ' + j.pin; noteInput.value=''; loadPins(); alert('New PIN: ' + j.pin); }
+      else { generateResult.innerText = 'Error: ' + (j.error || j.message || 'server'); alert('Failed to generate PIN: ' + (j.error || j.message || 'server')); }
+    } catch(e){ generateResult.innerText='Network error'; console.error('generate_pin error', e); alert('Network error'); }
+    btnGenerate.disabled = false;
   });
 
-
-  // Upload video -> /api/admin/upload_video
   btnUpload.addEventListener('click', async ()=>{
-    const title = (videoTitle.value || '').trim();
-    const file = videoFile.files[0];
-    if(!title || !file){ uploadResult.innerText = 'Provide title and file'; await showMessage('Missing fields','Provide title and file'); return; }
-    uploadResult.innerText = 'Uploading...';
-    btnUpload.disabled = true;
+    const title = (videoTitle.value || '').trim(); const file = videoFile.files[0];
+    if(!title || !file){ uploadResult.innerText='Provide title and file'; alert('Provide title and file'); return; }
+    uploadResult.innerText='Uploading...'; btnUpload.disabled=true;
     try {
-      const fd = new FormData();
-      fd.append('title', title);
-      fd.append('video', file);
-      const r = await apiFetch('/admin/upload_video', {
-        method: 'POST',
-        body: fd
-      });
+      const fd = new FormData(); fd.append('title', title); fd.append('video', file);
+      const r = await apiFetch('/admin/upload_video', { method:'POST', body: fd });
       const j = await r.json();
-      if(r.ok && j.success){
-        uploadResult.innerText = 'Uploaded ✓';
-        videoTitle.value = '';
-        videoFile.value = '';
-        loadVideos();
-        await showMessage('Uploaded', 'Video uploaded successfully');
-      } else {
-        uploadResult.innerText = 'Upload failed: ' + (j.error || j.message || 'server');
-        console.error('upload_video response', j);
-        await showMessage('Error', 'Upload failed: ' + (j.error || j.message || 'server'));
-      }
-    } catch(e){
-      uploadResult.innerText = 'Network error';
-      console.error('upload_video error', e);
-      await showMessage('Network error', 'Network error while uploading video');
-    } finally { btnUpload.disabled = false; }
+      if(r.ok && j.success){ uploadResult.innerText='Uploaded ✓'; videoTitle.value=''; videoFile.value=''; loadVideos(); alert('Uploaded'); } else { uploadResult.innerText='Upload failed: ' + (j.error||j.message||'server'); alert('Upload failed'); }
+    } catch(e){ uploadResult.innerText='Network error'; console.error('upload_video error', e); alert('Network error while uploading video'); }
+    btnUpload.disabled=false;
   });
 
-  // Upload any file -> /api/admin/upload_file
   btnUploadFile.addEventListener('click', async ()=>{
-    const title = (fileTitle.value || '').trim();
-    const file = anyFile.files[0];
-    if(!title || !file){ uploadFileResult.innerText = 'Provide title and file'; await showMessage('Missing fields','Provide title and file'); return; }
-    uploadFileResult.innerText = 'Uploading...';
-    btnUploadFile.disabled = true;
+    const title = (fileTitle.value||'').trim(); const file = anyFile.files[0];
+    if(!title || !file){ uploadFileResult.innerText='Provide title and file'; alert('Provide title and file'); return; }
+    uploadFileResult.innerText='Uploading...'; btnUploadFile.disabled=true;
     try {
-      const fd = new FormData();
-      fd.append('title', title);
-      fd.append('file', file);
-      const r = await apiFetch('/admin/upload_file', {
-        method: 'POST',
-        body: fd
-      });
+      const fd = new FormData(); fd.append('title', title); fd.append('file', file);
+      const r = await apiFetch('/admin/upload_file', { method:'POST', body: fd });
       const j = await r.json();
-      if(r.ok && j.success){
-        uploadFileResult.innerText = 'Uploaded ✓';
-        fileTitle.value = '';
-        anyFile.value = '';
-        loadVideos();
-        await showMessage('Uploaded', 'File uploaded successfully (saved as a video record)');
-      } else {
-        uploadFileResult.innerText = 'Upload failed: ' + (j.error || j.message || 'server');
-        console.error('upload_file response', j);
-        await showMessage('Error', 'Upload failed: ' + (j.error || j.message || 'server'));
-      }
-    } catch(e){
-      uploadFileResult.innerText = 'Network error';
-      console.error('upload_file error', e);
-      await showMessage('Network error', 'Network error while uploading file');
-    } finally { btnUploadFile.disabled = false; }
+      if(r.ok && j.success){ uploadFileResult.innerText='Uploaded ✓'; fileTitle.value=''; anyFile.value=''; loadVideos(); alert('Uploaded'); } else { uploadFileResult.innerText='Upload failed: ' + (j.error||j.message||'server'); alert('Upload failed'); }
+    } catch(e){ uploadFileResult.innerText='Network error'; console.error('upload_file error', e); alert('Network error while uploading file'); }
+    btnUploadFile.disabled=false;
   });
 
   btnRefresh.addEventListener('click', ()=>{ loadPins(); loadVideos(); });
 
   btnLogout.addEventListener('click', async ()=>{
-    const ok = await showConfirm('Logout admin', 'Logout admin?');
-    if(!ok) return;
-    try {
-      await apiFetch('/logout', { method: 'POST' });
-    } catch(e){ console.error('logout error', e); }
-    sessionStorage.removeItem('training_is_admin');
-    window.location.href = UI_BASE + '/';
+    const ok = confirm('Logout admin?'); if(!ok) return;
+    try { await apiFetch('/logout', { method:'POST' }); } catch(e){ console.error('logout error', e); }
+    sessionStorage.removeItem('training_is_admin'); window.location.href = UI_BASE + '/';
   });
 
-  // initial load
-  loadPins();
-  loadVideos();
+  loadPins(); loadVideos();
 
 })();
 </script>
