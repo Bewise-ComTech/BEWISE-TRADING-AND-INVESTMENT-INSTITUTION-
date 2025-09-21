@@ -507,4 +507,119 @@ def api_admin_upload_file():
     if not f or not title:
         return jsonify({"success": False, "error": "missing_title_or_file"}), 400
     safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.c
+    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
+    try:
+        f.save(path)
+        file_row = File(title=title, filename=safe_name, uploaded_at=now())
+        db.session.add(file_row)
+        db.session.commit()
+        return jsonify({"success": True, "file_id": file_row.id})
+    except Exception as exc:
+        logger.exception("upload_file failed: %s", exc)
+        db.session.rollback()
+        # remove partial file if it exists
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
+@app.route("/api/admin/files")
+def api_admin_files():
+    """List uploaded non-video files (admin only)."""
+    if not admin_auth_ok(request):
+        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+    rows = File.query.order_by(File.uploaded_at.desc()).all()
+    data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
+    return jsonify(data)
+
+@app.route("/api/admin/delete_file", methods=["POST"])
+def api_admin_delete_file():
+    """Delete a file record and remove its file from uploads (admin only)."""
+    if not admin_auth_ok(request):
+        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+    data = request.get_json() or {}
+    file_id = data.get("file_id")
+    if not file_id:
+        return jsonify({"success": False, "error": "missing_file_id"}), 400
+    frow = File.query.get(file_id)
+    if not frow:
+        return jsonify({"success": False, "error": "file_not_found"}), 404
+    filename = frow.filename
+    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    try:
+        db.session.delete(frow)
+        db.session.commit()
+    except Exception as exc:
+        logger.exception("DB delete failed for file %s: %s", file_id, exc)
+        db.session.rollback()
+        return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
+
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception as exc:
+        logger.exception("Failed to remove file %s: %s", path, exc)
+        return jsonify({"success": True, "warning": "db_deleted_but_file_remove_failed", "message": str(exc)})
+    return jsonify({"success": True})
+
+@app.route("/api/files")
+def api_files():
+    """List uploaded files available to all users."""
+    rows = File.query.order_by(File.uploaded_at.desc()).all()
+    data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
+    return jsonify(data)
+
+# ----- NEW: public file view route (serves inline for preview; no attachment header) -----
+@app.route("/view/file/<int:file_id>")
+def view_file(file_id):
+    """Serve file inline so browser can preview (PDFs/images) but do not force-download.
+       This is intentionally view-only; frontend should not show a download button.
+    """
+    frow = File.query.get(file_id)
+    if not frow:
+        return "Not found", 404
+    filename = frow.filename
+    # secure join to avoid path traversal
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    if not os.path.exists(file_path):
+        return "File missing", 404
+    # send file inline; let send_from_directory set content-type
+    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], filename))
+    # prefer inline so browser opens the file if it can (pdf/images)
+    resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+# -------------- API: Payment ------------
+@app.route("/api/payment/proof", methods=["POST"])
+def api_payment_proof():
+    name = request.form.get("name", "")
+    email = request.form.get("email", "")
+    course_title = request.form.get("course_title", "")
+    f = request.files.get("proof")
+    if not name or not f:
+        return jsonify({"success": False, "error": "missing_fields"}), 400
+    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
+    path = os.path.join(app.static_folder, safe_name)
+    f.save(path)
+    pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
+    db.session.add(pay); db.session.commit()
+    return jsonify({"success": True})
+
+# -------------- Health -------------------
+@app.route("/api/health")
+def health():
+    try:
+        db.session.execute("SELECT 1")
+        return jsonify({"ok": True})
+    except Exception as e:
+        logger.exception("Health check failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+# --------------- Run ---------------------
+if __name__ == "__main__":
+    debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+```0
