@@ -1,76 +1,242 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
-<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Courses — Crypto Training</title>
 <link rel="icon" href="/logo.png">
 <style>
-  body{margin:0;font-family:system-ui;background:#071024;color:#e6eef8}
-  header{padding:14px;background:linear-gradient(90deg,#06203a,#08304d);display:flex;align-items:center;gap:12px}
-  .container{padding:18px;max-width:1000px;margin:18px auto}
-  .video-card{background:#041328;padding:12px;border-radius:8px;margin-bottom:12px}
-  video{width:100%;height:auto;border-radius:8px;outline:none}
-  .hint{font-size:13px;opacity:0.9;margin-bottom:10px}
+  body{font-family:system-ui;margin:0;background:linear-gradient(180deg,#031025,#071024);color:#e6eef8}
+  header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px;
+    background:linear-gradient(90deg,#06203a,#08304d);
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .logo{height:36px}
+  .wrap{padding:18px;max-width:1100px;margin:auto}
+  .intro{opacity:0.9;margin-bottom:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+  .card{background:#062035;padding:12px;border-radius:12px;position:relative;overflow:hidden}
+  video{width:100%;border-radius:8px;background:black;display:block}
+
+  /* top-right button styling */
+  .header-actions{ margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .top-btn{
+    padding:8px 12px;
+    border-radius:10px;
+    border:0;
+    cursor:pointer;
+    font-weight:800;
+    font-size:0.95rem;
+    background:linear-gradient(90deg,#06b6d4,#0891b2);
+    color:#042a2b;
+    box-shadow:0 8px 20px rgba(0,0,0,0.35);
+  }
+  .top-btn.secondary{ background:linear-gradient(90deg,#4ade80,#16a34a); color:#04210b; }
+
+  /* encouragement sections */
+  .encourage-wrap{ display:grid; grid-template-columns: 120px 1fr; gap:12px; align-items:flex-start; margin:16px 0; background:linear-gradient(180deg,#041324,#02101a); padding:14px; border-radius:12px; box-shadow:0 8px 18px rgba(0,0,0,0.45); }
+  .encourage-img{ width:110px; height:110px; object-fit:cover; border-radius:10px; border:2px solid rgba(255,255,255,0.04); }
+  .encourage-text{ font-size:15px; line-height:1.5; color:#dff8ff; }
+  .encourage-title{ font-weight:800; margin-bottom:8px; color:#bff7ff; }
+
+  /* modal */
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(2,6,23,0.6); display:none; align-items:center; justify-content:center; z-index:9999; }
+  .modal-panel{ background:#0b1220; padding:18px; border-radius:10px; width:92%; max-width:520px; box-shadow:0 12px 40px rgba(0,0,0,0.6); color:#e6eef8 }
+  .modal-title{ font-weight:800; margin-bottom:8px; font-size:1.05rem }
+  .modal-body{ margin-bottom:12px; color:#cfefff; line-height:1.3 }
+  .modal-actions{ display:flex; gap:8px; justify-content:flex-end; }
+  .btn-secondary{ background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfefff; padding:8px 10px; border-radius:8px; cursor:pointer }
+  .btn-primary{ background:linear-gradient(90deg,#06b6d4,#0891b2); color:#042a2b; padding:8px 12px; border-radius:8px; font-weight:800; cursor:pointer }
+
+  @media (max-width:720px){
+    .encourage-wrap{ grid-template-columns: 1fr; }
+    .encourage-img{ width:100%; height:180px; }
+  }
 </style>
 </head>
 <body>
 <header>
-  <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" style="height:36px" alt="logo">
-  <div style="font-weight:700">BEWISE TRADING AND INVESTMENT INSTITUTION</div>
+  <div class="brand">
+    <img src="/logo.png" class="logo" alt="logo">
+    <div style="font-weight:700">Courses</div>
+  </div>
+
+  <!-- Top-right button -->
+  <div class="header-actions">
+    <button id="topFilesBtn" class="top-btn" aria-label="Files">Files</button>
+    <button id="topHelpBtn" class="top-btn secondary" aria-label="Help">Need Help?</button>
+  </div>
 </header>
 
-<div class="container">
-  <h2>Course Videos</h2>
-  <div class="hint">Videos are view-only. Downloading or screen-record prevention cannot be fully enforced on the web; we make it harder by disabling right-click and nodownload controls.</div>
-  <div id="videosList">Loading videos...</div>
+<div class="wrap">
+  <p class="intro">Watch course videos below. We do our best to prevent downloads; however, screen capture protection is limited in web browsers. If you experience playback issues, re-login from the main page.</p>
+
+  <!-- Encouragement section 1 (image before the first 150-word message) -->
+  <div class="encourage-wrap" id="encourage1">
+    <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" alt="Inspire" class="encourage-img" />
+    <div>
+      <div class="encourage-title">Welcome to Your Crypto Journey</div>
+      <div class="encourage-text">
+        Welcome — you’ve taken an important step toward mastering crypto trading and investing. Over the next weeks you’ll learn practical strategies, how to read markets, manage risk, and develop the discipline that separates casual observers from consistent traders. Remember that progress in trading is not measured by a single trade but by steady improvement: practice the lessons, take notes, replay short clips to reinforce techniques, and ask questions when a concept isn’t clear. Mistakes are part of learning — treat them as data. Keep your risk small while you learn, and celebrate small wins. We built these lessons so you can follow step-by-step; pause, rewind, and practice. You’re part of a community now — stick with it, be curious, and you’ll be surprised by how much you can grow in a short time.
+      </div>
+    </div>
+  </div>
+
+  <!-- Encouragement section 2 (image before the second 150-word message) -->
+  <div class="encourage-wrap" id="encourage2">
+    <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" alt="Keep going" class="encourage-img" />
+    <div>
+      <div class="encourage-title">Keep Building, Keep Improving</div>
+      <div class="encourage-text">
+        Every expert was once a beginner — the difference is persistence. Use the course framework to build a routine: short daily reviews of key principles, weekly practice sessions, and regular reflection on what’s working. Engage with the exercises, test ideas on paper or demo accounts, and maintain a simple trading journal that records setups, outcomes, and emotions. Over time you’ll discover patterns in your behavior and improve decision-making. Consider the course a toolkit — tools work only when used. If you find a concept challenging, re-watch the segment and reach out through the admin channels for clarification. We’ll update lessons often, so come back and revisit material. Stay patient, trade responsibly, and remember we’re here to help you turn small steps into meaningful progress.
+      </div>
+    </div>
+  </div>
+
+  <!-- Grid of videos -->
+  <div id="grid" class="grid" aria-live="polite"></div>
+</div>
+
+<!-- Modal (used instead of alerts) -->
+<div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
+  <div class="modal-panel" role="document" aria-live="polite" aria-modal="true">
+    <div class="modal-title" id="modalTitle">Title</div>
+    <div class="modal-body" id="modalBody">Message</div>
+    <div class="modal-actions" id="modalActions">
+      <button class="btn-secondary" id="modalCancel">Cancel</button>
+      <button class="btn-primary" id="modalOk">OK</button>
+    </div>
+  </div>
 </div>
 
 <script>
 (async function(){
-  const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';
-  const RENDER_BASE = 'https://' + RENDER_HOST;
-  const RENDER_API = RENDER_BASE + '/api';
-  const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_API;
+  // Modal utilities (replaces alert)
+  const backdrop = document.getElementById('modalBackdrop');
+  const titleEl = document.getElementById('modalTitle');
+  const bodyEl = document.getElementById('modalBody');
+  const okBtn = document.getElementById('modalOk');
+  const cancelBtn = document.getElementById('modalCancel');
+  function showModal(title, message, { showCancel=false, okText='OK', cancelText='Cancel' } = {}){
+    titleEl.innerText = title || '';
+    bodyEl.innerText = message || '';
+    okBtn.innerText = okText;
+    cancelBtn.innerText = cancelText;
+    cancelBtn.style.display = showCancel ? 'inline-block' : 'none';
+    backdrop.style.display = 'flex';
+    backdrop.setAttribute('aria-hidden','false');
+    return new Promise(resolve=>{
+      function cleanup(){ okBtn.removeEventListener('click', onOk); cancelBtn.removeEventListener('click', onCancel); backdrop.style.display='none'; backdrop.setAttribute('aria-hidden','true'); }
+      function onOk(){ cleanup(); resolve(true); }
+      function onCancel(){ cleanup(); resolve(false); }
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+    });
+  }
+  const showMessage = (t,m) => showModal(t,m,{showCancel:false,okText:'OK'});
 
-  async function apiFetch(path, opts = {}){
-    const final = Object.assign({ credentials:'include' }, opts);
-    const r = await fetch(API + path, final);
-    if(r.status === 401 || r.status === 403){ alert('Session expired or not authorized'); window.location.href='/'; throw new Error('unauthorized'); }
-    return r;
+  // compute fingerprint and optional local lock check
+  async function computeFP(){
+    let uuid = localStorage.getItem('training_device_uuid');
+    if(!uuid){ uuid = crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2)); localStorage.setItem('training_device_uuid', uuid); }
+    const data = [navigator.userAgent||'', navigator.platform||'', (navigator.languages||[]).join(','), screen.width+'x'+screen.height+'x'+screen.colorDepth, Intl.DateTimeFormat().resolvedOptions().timeZone||'', uuid].join('||');
+    const enc = new TextEncoder().encode(data);
+    const hashBuf = await crypto.subtle.digest('SHA-256', enc);
+    return Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
   }
 
-  const listEl = document.getElementById('videosList');
-  async function load(){
-    listEl.textContent = 'Loading...';
-    try {
-      const r = await apiFetch('/videos');
-      const j = await r.json();
-      if(!Array.isArray(j)){ listEl.innerHTML = '<div>Error</div>'; return; }
-      listEl.innerHTML = '';
-      j.forEach(v => {
-        const c = document.createElement('div');
-        c.className = 'video-card';
-        c.innerHTML = `<div style="font-weight:700;margin-bottom:8px">${v.title}</div>
-          <video controls controlsList="nodownload noremoteplayback" preload="metadata" data-id="${v.id}">
-            <source src="/stream/${v.id}" type="video/mp4">
-            Your browser does not support the video element.
-          </video>`;
-        // disable context menu on video to make saving a bit harder
-        c.querySelector('video').addEventListener('contextmenu', (e)=> e.preventDefault());
-        listEl.appendChild(c);
-      });
-    } catch(e){
-      console.error(e);
-      listEl.innerHTML = '<div class="hint">Error loading videos or authorization required.</div>';
+  const fp = await computeFP();
+  const allowed = localStorage.getItem('training_allowed_device');
+  if(allowed && allowed !== fp){
+    await showMessage('Device locked','This installation is locked to another device. Please login from the registered device or contact admin.');
+    location.href='/'; return;
+  }
+
+  // ensure session active
+  try{
+    const chk = await (await fetch('/api/check_session', {credentials:'include'})).json();
+    if(!chk.logged_in){ location.href='/'; return; }
+  }catch(e){
+    console.error('check_session failed',e);
+    await showMessage('Error','Unable to verify session. Redirecting to login.'); location.href='/'; return;
+  }
+
+  // helper to fetch JSON safely
+  async function safeJson(url, opts){ try { const r = await fetch(url, opts); if(!r.ok){ return {ok:false,status:r.status}; } const j = await r.json(); return {ok:true,body:j}; } catch(e){ return {ok:false,error:e}; } }
+
+  // UI refs
+  const grid = document.getElementById('grid');
+  const topFilesBtn = document.getElementById('topFilesBtn');
+  const topHelpBtn = document.getElementById('topHelpBtn');
+
+  // load videos from backend and render
+  async function loadVideos(){
+    const res = await safeJson('/api/videos', { credentials: 'include' });
+    if(res.ok && Array.isArray(res.body)) return res.body;
+    return [];
+  }
+
+  function renderVideos(videos){
+    grid.innerHTML = '';
+    if(!Array.isArray(videos) || videos.length===0){
+      grid.innerHTML = '<div style="opacity:0.8">No videos yet. Admin will upload lessons here.</div>'; return;
     }
+    videos.forEach(v=>{
+      const card = document.createElement('div'); card.className='card';
+      const vid = document.createElement('video');
+      vid.controls = true;
+      vid.setAttribute('controlsList','nodownload nofullscreen noremoteplayback');
+      vid.preload = 'metadata';
+      // video source: stream route from backend
+      vid.src = '/stream/' + v.id;
+      // on play verify session is still active
+      vid.addEventListener('play', async function onPlay(){
+        try {
+          const r = await fetch('/api/check_session', {credentials:'include'});
+          if(!r.ok){ vid.pause(); await showMessage('Login required','Please login again to watch videos.'); location.href='/'; return; }
+          const j = await r.json();
+          if(!j.logged_in){ vid.pause(); await showMessage('Login required','Please login again to watch videos.'); location.href='/'; return; }
+        } catch(e){
+          vid.pause();
+          await showMessage('Error','Session check failed. Redirecting to login.'); location.href='/'; return;
+        } finally {
+          vid.removeEventListener('play', onPlay);
+        }
+      });
+      // hinder right click/save
+      vid.addEventListener('contextmenu', e => e.preventDefault());
+      const t = document.createElement('div'); t.style.marginTop='8px'; t.style.fontWeight='700'; t.innerText = v.title || 'Untitled';
+      card.appendChild(vid); card.appendChild(t); grid.appendChild(card);
+    });
   }
-  await load();
 
-  // Basic attempt to discourage PrintScreen key capture (not reliable)
-  window.addEventListener('keydown', function(e){
-    // F12, PrintScreen (PrintScreen cannot be reliably blocked)
-    if(e.key === 'F12'){ e.preventDefault(); alert('Shortcut blocked'); }
+  // initial load
+  const videos = await loadVideos();
+  renderVideos(videos);
+
+  // top-right button minimal behaviors
+  topFilesBtn.addEventListener('click', async ()=>{
+    await showMessage('Files','Files are managed in the Admin panel. If you were given file access, ask the admin to share the link.');
   });
+  topHelpBtn.addEventListener('click', async ()=>{
+    await showMessage('Need help','If you need assistance, contact support or reach out to the admin. We are here to help you learn.');
+  });
+
+  // UX protections & polish
+  document.addEventListener('contextmenu', e => {
+    // allow right-click on non-video elements, but block default on videos by delegating earlier
+    // This global handler is conservative: only prevents when target is a video or inside .card
+    const el = e.target;
+    if(el && (el.tagName === 'VIDEO' || el.closest && el.closest('.card'))){
+      e.preventDefault();
+    }
+  });
+
+  // Blur videos when page hidden
+  document.addEventListener('visibilitychange', ()=>{ document.querySelectorAll('video').forEach(v=> v.style.filter = document.visibilityState === 'visible' ? 'none' : 'blur(6px)'); });
 
 })();
 </script>
