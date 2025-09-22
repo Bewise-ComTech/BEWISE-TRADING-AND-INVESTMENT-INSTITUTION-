@@ -1,142 +1,285 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Payment — Crypto Training</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Payment — BEWISE TRADING AND INVESTMENT INSTITUTION</title>
 <link rel="icon" href="/logo.png">
 <style>
   :root{
-    --bg:#071024; --card:#061c2a; --muted:#9fbfc9; --accent:#16a34a; --accent-dark:#0f7a33;
-    --panel:#041328; --text:#e6eef8;
+    --bg: #03081a;
+    --card-radius: 18px;
+    --text: #e6eef8;
+    --muted: #9fbfc9;
+    --btn-green-1: #16a34a;
+    --btn-green-2: #0f7a33;
   }
-  html,body{height:100%;margin:0}
-  body{margin:0;font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:linear-gradient(180deg,#03081a,#071024); color:var(--text)}
-  header{padding:14px;background:linear-gradient(90deg,#06203a,#08304d);display:flex;align-items:center;gap:12px}
-  header .brand{display:flex;gap:12px;align-items:center}
-  header img{height:40px;border-radius:6px}
-  header h1{margin:0;font-size:1rem;font-weight:800}
-  .container{padding:22px;max-width:800px;margin:20px auto}
-  .panel{background:var(--card);padding:18px;border-radius:12px;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
-  h2{margin:0 0 8px 0}
-  .bank{background:var(--panel);padding:14px;border-radius:10px;margin-top:12px;color:var(--muted)}
-  .bank div{margin:6px 0}
-  label{display:block;margin-top:12px;color:var(--muted);font-size:0.95rem}
-  input[type="text"], input[type="email"], input[type="file"]{
-    display:block;width:100%;padding:12px;margin-top:6px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text);box-sizing:border-box
+
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#03081a,#071024);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:var(--text);display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+  .wrap{width:100%;max-width:920px;}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:20px;justify-content:center}
+  header img{height:48px;border-radius:8px}
+  header h1{font-size:1.05rem;margin:0;font-weight:800;color:var(--text)}
+
+  .center-card{
+    background: rgba(6,32,53,0.6);
+    border-radius: calc(var(--card-radius) + 2px);
+    padding:22px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:18px;
+    width:100%;
   }
-  .controls{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
-  button.primary{
-    background: linear-gradient(90deg,var(--accent),var(--accent-dark));
-    color: #042a2b;
-    border:0;padding:12px 18px;border-radius:10px;font-weight:800;cursor:pointer;box-shadow:0 10px 30px rgba(10,80,30,0.12)
+
+  .instructions { color:var(--muted); font-size:0.95rem; text-align:center; margin-top:4px; }
+
+  /* Flyer */
+  .flyer {
+    width:100%;
+    max-width:640px;
+    height:320px;
+    border-radius: var(--card-radius);
+    overflow:hidden;
+    display:grid;
+    place-items:center;
+    cursor:pointer;
+    position:relative;
+    user-select:none;
+    transition: transform .35s ease, box-shadow .35s ease;
+    box-shadow: 0 18px 50px rgba(2,6,23,0.6);
   }
-  button.primary[disabled]{opacity:0.7;cursor:default}
-  .note{margin-top:10px;color:var(--muted);font-size:.95rem}
-  .result{margin-top:12px;padding:10px;border-radius:8px;display:none}
-  .result.ok{background:rgba(34,197,94,0.12);color:#9ff4c6;display:block}
-  .result.err{background:rgba(239,68,68,0.08);color:#ffb4b4;display:block}
-  @media (max-width:520px){
-    .container{padding:12px}
-    header img{height:34px}
+  .flyer:active{ transform: scale(.99); }
+
+  /* inner content layout */
+  .flyer-inner{
+    width:100%;
+    height:100%;
+    display:flex;
+    gap:18px;
+    align-items:center;
+    justify-content:space-between;
+    padding:30px;
+    box-sizing:border-box;
+    color:var(--text);
+    background: linear-gradient(0deg, rgba(0,0,0,0.12), rgba(0,0,0,0.04));
+  }
+  .brand-block{
+    flex:1 1 45%;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    justify-content:center;
+  }
+  .logo-round{
+    width:86px;height:86px;border-radius:16px;display:inline-grid;place-items:center;font-weight:900;font-size:26px;border:2px solid rgba(255,255,255,0.06)
+  }
+  .provider-name{font-size:28px;font-weight:900;letter-spacing:0.6px}
+  .acct{font-size:18px;opacity:0.95}
+  .acct strong{display:block;font-size:20px;margin-top:6px;color:#fff}
+
+  .decor{
+    flex:1 1 45%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    height:100%;
+    position:relative;
+  }
+
+  /* image-based flyer (you will set src) */
+  .flyer-img {
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    border-radius:12px;
+    display:block;
+  }
+  /* fallback decorative background if no image */
+  .decor-fallback {
+    position:absolute; inset:0; border-radius:12px; background: linear-gradient(135deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    display:block;
+  }
+
+  /* animations: fade & slide */
+  .fade-in { animation: fadeIn .42s ease; }
+  @keyframes fadeIn{
+    from { opacity:0; transform: translateY(8px) scale(.995); }
+    to   { opacity:1; transform: translateY(0) scale(1); }
+  }
+
+  /* provider gradients / styles (backgrounds) */
+  .palmpay { background: linear-gradient(135deg,#8B4513 0%, #D2B48C 100%); color:#fff; }
+  .opay    { background: linear-gradient(135deg,#007f00 0%, #2ecc40 100%); color:#fff; }
+  .monie   { background: linear-gradient(135deg,#0f3d91 0%, #3b82f6 100%); color:#fff; }
+
+  /* Button */
+  .submit-btn{
+    display:inline-flex;align-items:center;gap:12px;
+    background: linear-gradient(90deg,var(--btn-green-1),var(--btn-green-2));
+    color:#fff;border:0;padding:14px 20px;border-radius:12px;font-weight:900;cursor:pointer;font-size:1rem;box-shadow:0 12px 30px rgba(10,80,30,0.14)
+  }
+  .submit-btn:active{ transform: translateY(1px); }
+
+  /* small note */
+  .small-note{ color:var(--muted); font-size:0.92rem; text-align:center; max-width:720px; margin-top:6px; }
+
+  /* responsive */
+  @media (max-width:720px){
+    .flyer{ height:260px; }
+    .flyer-inner{ padding:20px; flex-direction:column; gap:12px; align-items:flex-start; justify-content:center; text-align:left; }
+    .decor{ order: -1; width:100%; display:flex; justify-content:flex-start; padding-left:8px; }
+    .brand-block{ width:100% }
   }
 </style>
 </head>
 <body>
-<header>
-  <div class="brand">
-    <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" alt="logo">
-    <h1>BEWISE TRADING AND INVESTMENT INSTITUTION</h1>
+  <div class="wrap">
+    <header aria-hidden="true">
+      <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" alt="logo">
+      <h1>BEWISE TRADING AND INVESTMENT INSTITUTION</h1>
+    </header>
+
+    <main class="center-card" role="main" aria-label="Payment details and submit">
+      <div class="instructions">Tap the payment card to switch between providers. When ready press <strong>Submit Proof</strong> to send your details on WhatsApp.</div>
+
+      <div id="flyer" class="flyer palmpay" role="button" aria-pressed="false" tabindex="0" title="Tap to change payment method">
+        <div id="flyerInner" class="flyer-inner fade-in" aria-live="polite">
+          <div class="brand-block">
+            <div class="logo-round" id="logoRound" aria-hidden="true">PP</div>
+            <div class="provider-name" id="providerName">Palmpay</div>
+            <div class="acct">Account name: <strong id="acctName">Ezeh Ebube Chidubem</strong></div>
+            <div class="acct">Account number: <strong id="acctNumber">8167542829</strong></div>
+          </div>
+
+          <div class="decor" aria-hidden="true">
+            <!-- Image-based flyer area. Replace provider.img values below with your image URLs. -->
+            <div class="decor-fallback" id="decorFallback" aria-hidden="true"></div>
+            <img id="flyerImg" class="flyer-img" alt="Provider flyer image" src="" style="display:none" />
+          </div>
+        </div>
+      </div>
+
+      <button id="submitBtn" class="submit-btn" aria-label="Submit proof and open WhatsApp">
+        Submit Proof
+      </button>
+
+      <div class="small-note">After pressing Submit you'll be directed to WhatsApp to drop your payment details and attach the proof screenshot/file.</div>
+    </main>
   </div>
-</header>
-
-<div class="container">
-  <div class="panel">
-    <h2>Payments</h2>
-
-    <div class="bank" aria-live="polite">
-      <div style="font-weight:700">Bank Transfer / Palmpay</div>
-      <div>Account name: <strong>Ezeh Ebube Chidubem</strong></div>
-      <div>Account number: <strong>8167542829</strong></div>
-      <div>Provider: <strong>Palmpay</strong></div>
-      <div style="margin-top:8px;color:var(--muted);font-size:.95rem">(Transfer, then upload proof below.)</div>
-    </div>
-
-    <h3 style="margin-top:16px">Upload Payment Proof</h3>
-
-    <label for="name">Full name</label>
-    <input id="name" type="text" placeholder="Your name">
-
-    <label for="email">Email (optional)</label>
-    <input id="email" type="email" placeholder="you@example.com">
-
-    <label for="course">Course / package</label>
-    <input id="course" type="text" placeholder="Course name">
-
-    <label for="proof">Proof (image or PDF)</label>
-    <input id="proof" type="file" accept="image/*,application/pdf">
-
-    <div class="controls">
-      <button id="btnSend" class="primary">Send Proof</button>
-      <div class="note">A copy will be emailed to the admin for verification.</div>
-    </div>
-
-    <div id="result" class="result" role="status" aria-live="polite"></div>
-  </div>
-</div>
 
 <script>
-(async function(){
-  const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';
-  const RENDER_BASE = 'https://' + RENDER_HOST;
-  const RENDER_API = RENDER_BASE + '/api';
-  const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_API;
+  // Providers list (sequence) — put your image URLs into the `img` fields.
+  const providers = [
+    {
+      id: "palmpay",
+      short: "PP",
+      name: "Palmpay",
+      acctName: "Ezeh Ebube Chidubem",
+      acctNumber: "8167542829",
+      className: "palmpay",
+      logoText: "PP",
+      img: "https://i.postimg.cc/50nR033D/IMG-20250922-163744.jpg" // e.g. "https://example.com/palmpay-flyer.jpg"
+    },
+    {
+      id: "opay",
+      short: "OP",
+      name: "Opay",
+      acctName: "Ezeh Ebube Chidubem",
+      acctNumber: "08132456789",
+      className: "opay",
+      logoText: "OP",
+      img: "https://i.postimg.cc/7LpLR308/IMG-20250922-163201.jpg" // e.g. "https://example.com/opay-flyer.jpg"
+    },
+    {
+      id: "moniepoint",
+      short: "MP",
+      name: "Moniepoint",
+      acctName: "Ezeh Ebube Chidubem",
+      acctNumber: "08123456780",
+      className: "monie",
+      logoText: "MP",
+      img: "https://i.postimg.cc/RhQSD2Q2/IMG-20250922-165223.png" // e.g. "https://example.com/moniepoint-flyer.jpg"
+    }
+  ];
 
-  const nameEl = document.getElementById('name'), emailEl = document.getElementById('email'), courseEl = document.getElementById('course'), proofEl = document.getElementById('proof'), btn = document.getElementById('btnSend'), result = document.getElementById('result');
+  let idx = 0;
+  const flyer = document.getElementById('flyer');
+  const flyerInner = document.getElementById('flyerInner');
+  const providerNameEl = document.getElementById('providerName');
+  const acctNameEl = document.getElementById('acctName');
+  const acctNumberEl = document.getElementById('acctNumber');
+  const logoRound = document.getElementById('logoRound');
+  const flyerImg = document.getElementById('flyerImg');
+  const decorFallback = document.getElementById('decorFallback');
 
-  function showResult(ok, text){
-    if(ok){ result.className = 'result ok'; result.textContent = text; }
-    else { result.className = 'result err'; result.textContent = text; }
-  }
-
-  btn.addEventListener('click', async ()=>{
-    const name = (nameEl.value||'').trim();
-    const email = (emailEl.value||'').trim();
-    const course = (courseEl.value||'').trim();
-    const file = proofEl.files[0];
-
-    if(!name || !file){ showResult(false, 'Please provide your name and a proof file.'); return; }
-
-    btn.disabled = true;
-    btn.textContent = 'Uploading...';
-
-    try {
-      const fd = new FormData();
-      fd.append('name', name);
-      fd.append('email', email);
-      fd.append('course_title', course);
-      fd.append('proof', file);
-
-      const r = await fetch(API + '/payment/proof', { method:'POST', body:fd, credentials:'include' });
-      let j = null;
-      try { j = await r.json(); } catch(e){ j = { success:false, error:'invalid_response' }; }
-
-      if(r.ok && j.success){
-        showResult(true, 'Uploaded — we will verify shortly. Thank you!');
-        // clear inputs
-        nameEl.value = ''; emailEl.value = ''; courseEl.value = ''; proofEl.value = '';
-      } else {
-        const msg = (j && (j.error || j.message)) || 'Upload failed';
-        showResult(false, 'Upload failed: ' + msg);
-      }
-    } catch(e){
-      console.error(e);
-      showResult(false, 'Network error — try again.');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = 'Send Proof';
+  // accessibility: allow keyboard to cycle
+  flyer.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ' ) {
+      e.preventDefault();
+      cycleProvider();
     }
   });
-})();
+
+  flyer.addEventListener('click', cycleProvider);
+
+  function cycleProvider(){
+    flyerInner.classList.remove('fade-in');
+    flyerInner.style.opacity = 0;
+    flyer.style.boxShadow = "0 6px 22px rgba(0,0,0,0.6)";
+    setTimeout(() => {
+      idx = (idx + 1) % providers.length;
+      applyProvider(idx);
+      flyerInner.style.opacity = 1;
+      flyerInner.classList.add('fade-in');
+      flyer.style.boxShadow = "0 18px 50px rgba(2,6,23,0.6)";
+    }, 220);
+  }
+
+  function applyProvider(i){
+    const p = providers[i];
+    // update background class
+    flyer.className = "flyer " + p.className;
+    // update text
+    providerNameEl.textContent = p.name;
+    acctNameEl.textContent = p.acctName;
+    acctNumberEl.textContent = p.acctNumber;
+    logoRound.textContent = p.logoText;
+    flyer.setAttribute('aria-pressed', (i !== 0).toString());
+
+    // update image: if p.img is set, show it; otherwise hide
+    if (p.img && p.img.trim()) {
+      flyerImg.src = p.img;
+      flyerImg.style.display = "block";
+      decorFallback.style.display = "none";
+    } else {
+      flyerImg.src = "";
+      flyerImg.style.display = "none";
+      decorFallback.style.display = "block";
+    }
+  }
+
+  // initialize
+  applyProvider(idx);
+
+  // Submit button -> open WhatsApp with prefilled message
+  const submitBtn = document.getElementById('submitBtn');
+  submitBtn.addEventListener('click', () => {
+    const p = providers[idx];
+    // Your WhatsApp number -> convert to international format (Nigeria +234) and remove leading zero
+    const international = "2348167542828"; // 08167542828 -> 2348167542828
+    const message =
+`Hello, I have completed payment using ${p.name}.
+Name:
+Course / Package:
+Amount Paid:
+Transaction reference (optional):
+Please find attached my proof (screenshot or file).`;
+
+    const url = `https://wa.me/${international}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  });
 </script>
 </body>
 </html>
