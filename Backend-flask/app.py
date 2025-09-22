@@ -42,12 +42,13 @@ POSTGRES_URL = (
 )
 
 # SMTP/email config (optional). Set these in Render environment to enable email sending.
-SMTP_HOST = os.environ.get("SMTP_HOST")          # e.g. "smtp.gmail.com"
+SMTP_HOST = os.environ.get("SMTP_HOST")          # e.g. "smtp.gmail.com" or "smtp.resend.com"
 SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
 SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASS = os.environ.get("SMTP_PASS")
 EMAIL_FROM = os.environ.get("EMAIL_FROM", SMTP_USER)
 EMAIL_TO = os.environ.get("EMAIL_TO", "ezehebubechidubem@gmail.com")
+
 
 # --------------- App setup ---------------
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
