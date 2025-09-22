@@ -1,12 +1,12 @@
 <!-- dashboard.html
      Dashboard page (inline CSS + JS)
-     Checks session and ensures the device fingerprint matches the allowed device.
-     Shows two motivational messages (each preceded by an image) below the buttons.
-     - Payment button color changed to yellow.
-     - Buttons separated into their own flex.
-     - Motivation blocks are side-by-side (image + quote) on wide screens and stacked on small screens.
-     - Footer links made visible and styled.
-     - Font Awesome added (icons added next to social link labels, original text preserved).
+     Changes requested:
+     - Quotes below images
+     - Images full (cover), responsive
+     - Footer icons only, credit under icons
+     - Back To Top removed
+     - Buttons separated into their flex (unchanged)
+     - No other removals
 -->
 <!doctype html>
 <html lang="en">
@@ -16,7 +16,7 @@
 <title>BEWISE TRADING AND INVESTMENT INSTITUTION</title>
 <link rel="icon" href="/logo.png">
 
-<!-- Font Awesome (added as requested) -->
+<!-- Font Awesome (kept) -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 
 <style>
@@ -149,7 +149,7 @@
   }
   button.logout:hover { transform: translateY(-4px); }
 
-  /* motivational section: each motivation is a flex row (image + quote) */
+  /* motivational section: each motivation in its own flex column (image full + quote under) */
   .motivation-wrap {
     width:100%;
     max-width:980px;
@@ -162,27 +162,34 @@
 
   .motivation {
     display:flex;
-    gap:18px;
+    flex-direction:column;   /* image on top, quote below */
+    gap:12px;
     background:#04182c;
     border-radius:12px;
-    padding:12px;
+    padding:0;               /* remove inner padding so image can reach edges */
     box-shadow:0 8px 24px rgba(0,0,0,0.35);
     align-items:stretch;
     width:100%;
+    overflow:hidden;
   }
 
-  .motivation .img-col, .motivation .text-col {
-    flex:1 1 50%;
-    min-width:0;
+  /* image container uses aspect-ratio so image covers block fully */
+  .img-col {
+    width:100%;
+    aspect-ratio: 16 / 9;
+    background:#02121a;
+    flex-shrink:0;
   }
 
-  .motivation img{
+  .img-col img{
     width:100%;
     height:100%;
     display:block;
-    object-fit:cover;
-    border-radius:8px;
-    max-height:620px;
+    object-fit:cover;   /* makes image full and automatically crop to fill */
+  }
+
+  .text-col{
+    padding:18px;
   }
 
   .motivation p{
@@ -190,11 +197,10 @@
     line-height:1.6;
     color:#dff8ff;
     margin:0;
-    padding:4px 6px;
     overflow-wrap:break-word;
   }
 
-  /* Footer styling (separate flex and more attractive links) */
+  /* Footer styling (icons only, credit under icons) */
   footer{
     margin-top:18px;
     padding:18px;
@@ -210,14 +216,21 @@
   }
 
   .footer-left { display:flex; align-items:center; gap:12px; }
-  .footer-right { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .footer-right { display:flex; align-items:center; gap:12px; flex-direction:column; }
+
+  .social {
+    display:flex;
+    gap:10px;
+    align-items:center;
+    justify-content:center;
+  }
 
   .social a{
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    gap:8px;
-    padding:8px 10px;
+    width:44px;
+    height:44px;
     border-radius:10px;
     background:rgba(255,255,255,0.04);
     text-decoration:none;
@@ -225,24 +238,18 @@
     font-weight:700;
     transition: transform .12s ease, background .12s ease;
   }
-  .social a i { font-size:16px; }
+  .social a i { font-size:18px; }
   .social a:hover{ transform:translateY(-4px); background:rgba(255,255,255,0.08); }
 
-  .back-top {
-    padding:10px 14px;
-    border-radius:10px;
-    background:linear-gradient(90deg,#06b6d4,#0891b2);
-    color:#042a2b;
-    text-decoration:none;
-    font-weight:800;
+  .footer-credit {
+    font-size:0.95rem;
+    color:#9feaf6;
+    margin-top:6px;
+    text-align:center;
   }
 
-  .credit { font-size:0.95rem; color:#9feaf6; }
-
-  /* responsive: on small screens stack motivation blocks vertically */
+  /* responsive adjustments */
   @media (max-width:920px){
-    .motivation { flex-direction:column; }
-    .motivation img{ max-height:260px; border-radius:8px; }
     .links { width:100%; }
     .buttons-flex { justify-content:center; }
     .card { padding:18px; }
@@ -252,6 +259,7 @@
     .motivation img{ max-height:200px; }
     .links a, .links button { font-size:0.98rem; padding:14px 16px; }
     .logout { width:100%; }
+    footer{ flex-direction:column; align-items:center; gap:10px; }
   }
 </style>
 </head>
@@ -286,7 +294,7 @@
 
     <div id="status" aria-live="polite"></div>
 
-    <!-- Motivational messages: each is a flex row (image + quote) -->
+    <!-- Motivational messages: image on top, quote below (each block separate) -->
     <div class="motivation-wrap" aria-live="polite">
       <div class="motivation" id="motivation1">
         <div class="img-col">
@@ -315,19 +323,20 @@
 </div>
 
 <footer>
-  <div class="footer-left">
-  
-  <div class="footer-right">
+  <div class="footer-left" aria-hidden="true">
+    <img src="/logo.png" alt="logo" style="height:40px; border-radius:8px;">
+  </div>
+
+  <div class="footer-right" role="contentinfo">
     <div class="social" aria-label="Social links">
-      <a href="https://facebook.com/profile.php?id=100081867991800" target="_blank" rel="noopener" title="Facebook"><i class="fab fa-facebook-f" aria-hidden="true"></i> FB</a>
-      <a href="https://x.com/chidubemEz468?t=QhEOHmP-Gqc253LRMfbu_A&s=09" target="_blank" rel="noopener" title="X / Twitter"><i class="fab fa-x-twitter" aria-hidden="true"></i> X</a>
-      <a href="https://wa.me/qr/JYPUQLHYHEZAA1" target="_blank" rel="noopener" title="WhatsApp"><i class="fab fa-whatsapp" aria-hidden="true"></i> WA</a>
-      <a href="https://tiktok.com/@TraderDubem" target="_blank" rel="noopener" title="TikTok"><i class="fab fa-tiktok" aria-hidden="true"></i> TT</a>
+      <a href="https://facebook.com/profile.php?id=100081867991800" target="_blank" rel="noopener" title="Facebook"><i class="fab fa-facebook-f" aria-hidden="true"></i></a>
+      <a href="https://x.com/chidubemEz468?t=QhEOHmP-Gqc253LRMfbu_A&s=09" target="_blank" rel="noopener" title="X / Twitter"><i class="fab fa-x-twitter" aria-hidden="true"></i></a>
+      <a href="https://wa.me/qr/JYPUQLHYHEZAA1" target="_blank" rel="noopener" title="WhatsApp"><i class="fab fa-whatsapp" aria-hidden="true"></i></a>
+      <a href="https://tiktok.com/@TraderDubem" target="_blank" rel="noopener" title="TikTok"><i class="fab fa-tiktok" aria-hidden="true"></i></a>
     </div>
 
-    <a class="back-top" href="#top" title="Back to top">Back To Top</a>
-    <div style="min-width:8px"></div>
-    <div class="credit">&copy; Developed By Dubem Tech</div>
+    <!-- "Developed By Dubem Tech" placed under the icons as requested -->
+    <div class="footer-credit">© Developed By Dubem Tech</div>
   </div>
 </footer>
 
