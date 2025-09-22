@@ -2,6 +2,10 @@
 import os
 import secrets
 import logging
+import smtplib
+import ssl
+import mimetypes
+from email.message import EmailMessage
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from flask import (
@@ -36,6 +40,14 @@ POSTGRES_URL = (
     "postgresql://crypto_trading_ef73_user:ExqngrM4GrJX6FmefoA1g3BRPu2kF0tk@"
     "dpg-d37inupr0fns739ha5r0-a.oregon-postgres.render.com/crypto_trading_ef73"
 )
+
+# SMTP/email config (optional). Set these in Render environment to enable email sending.
+SMTP_HOST = os.environ.get("SMTP_HOST")          # e.g. "smtp.gmail.com"
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+SMTP_USER = os.environ.get("SMTP_USER")
+SMTP_PASS = os.environ.get("SMTP_PASS")
+EMAIL_FROM = os.environ.get("EMAIL_FROM", SMTP_USER)
+EMAIL_TO = os.environ.get("EMAIL_TO", "ezehebubechidubem@gmail.com")
 
 # --------------- App setup ---------------
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
@@ -512,11 +524,85 @@ def api_payment_proof():
     f = request.files.get("proof")
     if not name or not f:
         return jsonify({"success": False, "error": "missing_fields"}), 400
+
+    # Save to uploads folder (same place as other content)
     safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.static_folder, safe_name)
-    f.save(path)
-    pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
-    db.session.add(pay); db.session.commit()
+    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
+    try:
+        f.save(path)
+    except Exception as exc:
+        logger.exception("Failed to save proof file: %s", exc)
+        return jsonify({"success": False, "error": "save_failed", "message": str(exc)}), 500
+
+    # store payment record
+    try:
+        pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
+        db.session.add(pay)
+        db.session.commit()
+    except Exception as exc:
+        logger.exception("Failed to save payment record: %s", exc)
+        # attempt to remove saved file if DB failed
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": "db_failed", "message": str(exc)}), 500
+
+    # If SMTP configured, try to send email with attachment to admin
+    if SMTP_HOST and SMTP_USER and SMTP_PASS:
+        try:
+            msg = EmailMessage()
+            subject = f"Payment proof: {name} - {course_title or 'N/A'}"
+            msg["Subject"] = subject
+            msg["From"] = EMAIL_FROM or SMTP_USER
+            msg["To"] = EMAIL_TO
+
+            body_lines = [
+                f"Name: {name}",
+                f"Email: {email or 'N/A'}",
+                f"Course: {course_title or 'N/A'}",
+                f"Filename: {safe_name}",
+                "",
+                "This message contains the uploaded payment proof attachment."
+            ]
+            msg.set_content("\n".join(body_lines))
+
+            # attach the file
+            ctype, encoding = mimetypes.guess_type(path)
+            if ctype is None:
+                ctype = "application/octet-stream"
+            maintype, subtype = ctype.split("/", 1)
+            with open(path, "rb") as fp:
+                file_data = fp.read()
+            msg.add_attachment(file_data, maintype=maintype, subtype=subtype, filename=f.filename)
+
+            context = ssl.create_default_context()
+
+            # Support common SMTP patterns: SSL (465) or STARTTLS (587/default)
+            if SMTP_PORT == 465:
+                with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=30) as server:
+                    server.login(SMTP_USER, SMTP_PASS)
+                    server.send_message(msg)
+            else:
+                with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
+                    server.ehlo()
+                    # prefer STARTTLS for 587
+                    if SMTP_PORT == 587:
+                        server.starttls(context=context)
+                        server.ehlo()
+                    server.login(SMTP_USER, SMTP_PASS)
+                    server.send_message(msg)
+
+        except Exception as exc:
+            logger.exception("Failed to send payment email: %s", exc)
+            # Keep DB and file; inform client with a warning
+            return jsonify({
+                "success": True,
+                "warning": "uploaded_but_email_failed",
+                "message": str(exc)
+            })
+
     return jsonify({"success": True})
 
 # -------------- Health -------------------
@@ -533,4 +619,3 @@ def health():
 if __name__ == "__main__":
     debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
