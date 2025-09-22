@@ -1,18 +1,22 @@
 # Core web framework
-Flask==3.1.2            # Pallets Flask stable (Aug 19 2025). 1
+Flask==3.1.2            # Pallets Flask stable (Aug 19 2025)
 
 # DB layer and ORM
-Flask-SQLAlchemy==3.1.1 # Flask extension for SQLAlchemy. 2
-SQLAlchemy==2.0.43      # SQLAlchemy 2.x series (ORM core). 3
+Flask-SQLAlchemy==3.1.1 # Flask extension for SQLAlchemy
+SQLAlchemy==2.0.43      # SQLAlchemy 2.x series (ORM core)
 
 # PostgreSQL driver
-psycopg2-binary==2.9.10 # Postgres adapter (binary wheel). 4
+psycopg2-binary==2.9.10 # Postgres adapter (binary wheel)
 
 # Environment & config helpers
-python-dotenv==1.1.1    # Load .env files (optional but handy). 5
+python-dotenv==1.1.1    # Load .env files (optional but handy)
 
 # CORS (only if your frontend fetches across origins)
-Flask-Cors==6.0.1       # Simplifies Cross-Origin Resource Sharing. 6
+Flask-Cors==6.0.1       # Simplifies Cross-Origin Resource Sharing
 
 # Production WSGI server (Render expects this if Start Command uses gunicorn)
-gunicorn==22.0.0        # Production WSGI server; add to fix 'gunicorn: command not found'. 7
+gunicorn==22.0.0        # Production WSGI server
+
+# Email support
+Flask-Mail==0.10.0      # Flask extension for sending emails
+email-validator==2.2.0  # Validate email addresses
