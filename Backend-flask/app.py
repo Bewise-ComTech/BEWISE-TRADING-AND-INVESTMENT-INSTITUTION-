@@ -509,4 +509,37 @@ def view_file(file_id):
         return "File missing", 404
     resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], filename))
     resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
-    resp.heade
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+# -------------- API: Payment ------------
+@app.route("/api/payment/proof", methods=["POST"])
+def api_payment_proof():
+    name = request.form.get("name", "")
+    email = request.form.get("email", "")
+    course_title = request.form.get("course_title", "")
+    f = request.files.get("proof")
+    if not name or not f:
+        return jsonify({"success": False, "error": "missing_fields"}), 400
+    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
+    path = os.path.join(app.static_folder, safe_name)
+    f.save(path)
+    pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
+    db.session.add(pay); db.session.commit()
+    return jsonify({"success": True})
+
+# -------------- Health -------------------
+@app.route("/api/health")
+def health():
+    try:
+        db.session.execute("SELECT 1")
+        return jsonify({"ok": True})
+    except Exception as e:
+        logger.exception("Health check failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+# --------------- Run ---------------------
+if __name__ == "__main__":
+    debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
