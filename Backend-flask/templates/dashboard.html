@@ -209,26 +209,28 @@
 
   .social {
     display:flex;
-    gap:10px;
+    gap:20px;
     align-items:center;
-    justify-content:center;
+    justify-content:space-between;
+    width:100%;
+    max-width:420px; /* makes them spread horizontally */
   }
 
   .social a{
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    width:44px;
-    height:44px;
-    border-radius:10px;
+    width:64px;   /* increased size */
+    height:64px;
+    border-radius:12px;
     background:rgba(255,255,255,0.04);
     text-decoration:none;
     color:inherit;
     font-weight:700;
     transition: transform .12s ease, background .12s ease;
   }
-  /* make icons a touch larger (medium) */
-  .social a i { font-size:20px; }
+  /* make icons larger */
+  .social a i { font-size:26px; }
 
   /* Brand colors for icons (keeps light translucent bg) */
   .social a.facebook i { color: #1877F2; }   /* Facebook blue */
@@ -257,6 +259,7 @@
     .links a, .links button { font-size:0.98rem; padding:14px 16px; }
     .logout { width:100%; }
     footer{ flex-direction:column; align-items:center; gap:10px; }
+    .social { max-width:300px; gap:14px; }
   }
 </style>
 </head>
@@ -323,7 +326,7 @@
   <div class="footer-right" role="contentinfo">
     <div class="social" aria-label="Social links">
       <a class="facebook" href="https://facebook.com/profile.php?id=100081867991800" target="_blank" rel="noopener" title="Facebook"><i class="fab fa-facebook-f" aria-hidden="true"></i></a>
-      <a class="x" href="https://x.com/chidubemEz468?t=QhEOHmP-Gqc253LRMfbu_A&s=09" target="_blank" rel="noopener" title="X / Twitter"><i class="fab fa-x-twitter" aria-hidden="true"></i></a>
+      <a class="x" href="https://x.com/chidubemEz468?t=QhEOHmP-Gqc253LRMfbu_A&s=09" target="_blank" rel="noopener" title="X / Twitter"><i class="fab fa-x" aria-hidden="true"></i></a>
       <a class="whatsapp" href="https://wa.me/qr/JYPUQLHYHEZAA1" target="_blank" rel="noopener" title="WhatsApp"><i class="fab fa-whatsapp" aria-hidden="true"></i></a>
       <a class="tiktok" href="https://tiktok.com/@TraderDubem" target="_blank" rel="noopener" title="TikTok"><i class="fab fa-tiktok" aria-hidden="true"></i></a>
     </div>
