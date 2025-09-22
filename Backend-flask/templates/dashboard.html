@@ -1,13 +1,3 @@
-<!-- dashboard.html
-     Dashboard page (inline CSS + JS)
-     Changes requested:
-     - Quotes below images
-     - Images full (cover), responsive
-     - Footer icons only, credit under icons
-     - Back To Top removed
-     - Buttons separated into their flex (unchanged)
-     - No other removals
--->
 <!doctype html>
 <html lang="en">
 <head>
@@ -238,11 +228,19 @@
     font-weight:700;
     transition: transform .12s ease, background .12s ease;
   }
-  .social a i { font-size:18px; }
+  /* make icons a touch larger (medium) */
+  .social a i { font-size:20px; }
+
+  /* Brand colors for icons (keeps light translucent bg) */
+  .social a.facebook i { color: #1877F2; }   /* Facebook blue */
+  .social a.x i { color: #1DA1F2; }          /* X / Twitter blue */
+  .social a.whatsapp i { color: #25D366; }   /* WhatsApp green */
+  .social a.tiktok i { color: #000000; }     /* TikTok black */
+
   .social a:hover{ transform:translateY(-4px); background:rgba(255,255,255,0.08); }
 
   .footer-credit {
-    font-size:0.95rem;
+    font-size:1rem;           /* medium size as requested */
     color:#9feaf6;
     margin-top:6px;
     text-align:center;
@@ -323,13 +321,16 @@
 </div>
 
 <footer>
+  <div class="footer-left" aria-hidden="true">
+    <img src="/logo.png" alt="logo" style="height:40px; border-radius:8px;">
+  </div>
 
-  <div class=" role="cono">
+  <div class="footer-right" role="contentinfo">
     <div class="social" aria-label="Social links">
-      <a href="https://facebook.com/profile.php?id=100081867991800" target="_blank" rel="noopener" title="Facebook"><i class="fab fa-facebook-f" aria-hidden="true"></i></a>
-      <a href="https://x.com/chidubemEz468?t=QhEOHmP-Gqc253LRMfbu_A&s=09" target="_blank" rel="noopener" title="X / Twitter"><i class="fab fa-x-twitter" aria-hidden="true"></i></a>
-      <a href="https://wa.me/qr/JYPUQLHYHEZAA1" target="_blank" rel="noopener" title="WhatsApp"><i class="fab fa-whatsapp" aria-hidden="true"></i></a>
-      <a href="https://tiktok.com/@TraderDubem" target="_blank" rel="noopener" title="TikTok"><i class="fab fa-tiktok" aria-hidden="true"></i></a>
+      <a class="facebook" href="https://facebook.com/profile.php?id=100081867991800" target="_blank" rel="noopener" title="Facebook"><i class="fab fa-facebook-f" aria-hidden="true"></i></a>
+      <a class="x" href="https://x.com/chidubemEz468?t=QhEOHmP-Gqc253LRMfbu_A&s=09" target="_blank" rel="noopener" title="X / Twitter"><i class="fab fa-x-twitter" aria-hidden="true"></i></a>
+      <a class="whatsapp" href="https://wa.me/qr/JYPUQLHYHEZAA1" target="_blank" rel="noopener" title="WhatsApp"><i class="fab fa-whatsapp" aria-hidden="true"></i></a>
+      <a class="tiktok" href="https://tiktok.com/@TraderDubem" target="_blank" rel="noopener" title="TikTok"><i class="fab fa-tiktok" aria-hidden="true"></i></a>
     </div>
 
     <!-- "Developed By Dubem Tech" placed under the icons as requested -->
