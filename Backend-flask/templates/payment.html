@@ -5,35 +5,83 @@
 <title>Payment — Crypto Training</title>
 <link rel="icon" href="/logo.png">
 <style>
-  body{margin:0;font-family:system-ui;background:#071024;color:#e6eef8}
+  :root{
+    --bg:#071024; --card:#061c2a; --muted:#9fbfc9; --accent:#16a34a; --accent-dark:#0f7a33;
+    --panel:#041328; --text:#e6eef8;
+  }
+  html,body{height:100%;margin:0}
+  body{margin:0;font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:linear-gradient(180deg,#03081a,#071024); color:var(--text)}
   header{padding:14px;background:linear-gradient(90deg,#06203a,#08304d);display:flex;align-items:center;gap:12px}
-  .container{padding:18px;max-width:700px;margin:18px auto}
-  input,button{display:block;width:100%;padding:10px;margin-top:8px;border-radius:8px;border:0}
-  .bank{background:#041328;padding:12px;border-radius:8px;margin-top:12px}
+  header .brand{display:flex;gap:12px;align-items:center}
+  header img{height:40px;border-radius:6px}
+  header h1{margin:0;font-size:1rem;font-weight:800}
+  .container{padding:22px;max-width:800px;margin:20px auto}
+  .panel{background:var(--card);padding:18px;border-radius:12px;box-shadow:0 10px 30px rgba(2,6,23,0.6)}
+  h2{margin:0 0 8px 0}
+  .bank{background:var(--panel);padding:14px;border-radius:10px;margin-top:12px;color:var(--muted)}
+  .bank div{margin:6px 0}
+  label{display:block;margin-top:12px;color:var(--muted);font-size:0.95rem}
+  input[type="text"], input[type="email"], input[type="file"]{
+    display:block;width:100%;padding:12px;margin-top:6px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text);box-sizing:border-box
+  }
+  .controls{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
+  button.primary{
+    background: linear-gradient(90deg,var(--accent),var(--accent-dark));
+    color: #042a2b;
+    border:0;padding:12px 18px;border-radius:10px;font-weight:800;cursor:pointer;box-shadow:0 10px 30px rgba(10,80,30,0.12)
+  }
+  button.primary[disabled]{opacity:0.7;cursor:default}
+  .note{margin-top:10px;color:var(--muted);font-size:.95rem}
+  .result{margin-top:12px;padding:10px;border-radius:8px;display:none}
+  .result.ok{background:rgba(34,197,94,0.12);color:#9ff4c6;display:block}
+  .result.err{background:rgba(239,68,68,0.08);color:#ffb4b4;display:block}
+  @media (max-width:520px){
+    .container{padding:12px}
+    header img{height:34px}
+  }
 </style>
 </head>
 <body>
 <header>
-  <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" style="height:36px" alt="logo">
-  <div style="font-weight:700">BEWISE TRADING AND INVESTMENT INSTITUTION</div>
-</header>
-<div class="container">
-  <h2>Payments</h2>
-  <div class="bank">
-    <div style="font-weight:700">Bank Transfer / Palmpay</div>
-    <div>Account name: Ezeh Ebube Chidubem</div>
-    <div>Account number: <strong>8167542829</strong></div>
-    <div>Provider: Palmpay</div>
-    <div style="margin-top:8px">(You can transfer and then upload proof below.)</div>
+  <div class="brand">
+    <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" alt="logo">
+    <h1>BEWISE TRADING AND INVESTMENT INSTITUTION</h1>
   </div>
+</header>
 
-  <h3 style="margin-top:16px">Upload Payment Proof</h3>
-  <input id="name" placeholder="Your name">
-  <input id="email" placeholder="Your email">
-  <input id="course" placeholder="Course / package">
-  <input id="proof" type="file" accept="image/*,application/pdf">
-  <button id="btnSend">Send Proof</button>
-  <div id="result" style="margin-top:8px"></div>
+<div class="container">
+  <div class="panel">
+    <h2>Payments</h2>
+
+    <div class="bank" aria-live="polite">
+      <div style="font-weight:700">Bank Transfer / Palmpay</div>
+      <div>Account name: <strong>Ezeh Ebube Chidubem</strong></div>
+      <div>Account number: <strong>8167542829</strong></div>
+      <div>Provider: <strong>Palmpay</strong></div>
+      <div style="margin-top:8px;color:var(--muted);font-size:.95rem">(Transfer, then upload proof below.)</div>
+    </div>
+
+    <h3 style="margin-top:16px">Upload Payment Proof</h3>
+
+    <label for="name">Full name</label>
+    <input id="name" type="text" placeholder="Your name">
+
+    <label for="email">Email (optional)</label>
+    <input id="email" type="email" placeholder="you@example.com">
+
+    <label for="course">Course / package</label>
+    <input id="course" type="text" placeholder="Course name">
+
+    <label for="proof">Proof (image or PDF)</label>
+    <input id="proof" type="file" accept="image/*,application/pdf">
+
+    <div class="controls">
+      <button id="btnSend" class="primary">Send Proof</button>
+      <div class="note">A copy will be emailed to the admin for verification.</div>
+    </div>
+
+    <div id="result" class="result" role="status" aria-live="polite"></div>
+  </div>
 </div>
 
 <script>
@@ -45,25 +93,48 @@
 
   const nameEl = document.getElementById('name'), emailEl = document.getElementById('email'), courseEl = document.getElementById('course'), proofEl = document.getElementById('proof'), btn = document.getElementById('btnSend'), result = document.getElementById('result');
 
+  function showResult(ok, text){
+    if(ok){ result.className = 'result ok'; result.textContent = text; }
+    else { result.className = 'result err'; result.textContent = text; }
+  }
+
   btn.addEventListener('click', async ()=>{
     const name = (nameEl.value||'').trim();
     const email = (emailEl.value||'').trim();
     const course = (courseEl.value||'').trim();
     const file = proofEl.files[0];
-    if(!name || !file){ result.innerText = 'Provide name and proof file'; return; }
-    btn.disabled = true; result.innerText = 'Uploading...';
+
+    if(!name || !file){ showResult(false, 'Please provide your name and a proof file.'); return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Uploading...';
+
     try {
       const fd = new FormData();
       fd.append('name', name);
       fd.append('email', email);
       fd.append('course_title', course);
       fd.append('proof', file);
-      const r = await fetch(API + '/payment/proof', { method:'POST', body:fd });
-      const j = await r.json();
-      if(r.ok && j.success){ result.innerText = 'Uploaded — we will verify shortly.'; nameEl.value=''; emailEl.value=''; courseEl.value=''; proofEl.value=''; }
-      else { result.innerText = 'Upload failed: ' + (j.error||j.message||'server'); }
-    } catch(e){ console.error(e); result.innerText = 'Network error'; }
-    btn.disabled = false;
+
+      const r = await fetch(API + '/payment/proof', { method:'POST', body:fd, credentials:'include' });
+      let j = null;
+      try { j = await r.json(); } catch(e){ j = { success:false, error:'invalid_response' }; }
+
+      if(r.ok && j.success){
+        showResult(true, 'Uploaded — we will verify shortly. Thank you!');
+        // clear inputs
+        nameEl.value = ''; emailEl.value = ''; courseEl.value = ''; proofEl.value = '';
+      } else {
+        const msg = (j && (j.error || j.message)) || 'Upload failed';
+        showResult(false, 'Upload failed: ' + msg);
+      }
+    } catch(e){
+      console.error(e);
+      showResult(false, 'Network error — try again.');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Send Proof';
+    }
   });
 })();
 </script>
