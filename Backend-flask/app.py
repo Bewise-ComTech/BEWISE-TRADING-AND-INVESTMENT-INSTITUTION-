@@ -493,7 +493,7 @@ def api_admin_upload_file():
             pass
         return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
 
-@@app.route("/api/files")
+@app.route("/api/files")
 def api_files():
     rows = File.query.order_by(File.uploaded_at.desc()).all()
     data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
