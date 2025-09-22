@@ -49,7 +49,6 @@ SMTP_PASS = os.environ.get("SMTP_PASS")
 EMAIL_FROM = os.environ.get("EMAIL_FROM", SMTP_USER)
 EMAIL_TO = os.environ.get("EMAIL_TO", "ezehebubechidubem@gmail.com")
 
-
 # --------------- App setup ---------------
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", POSTGRES_URL)
@@ -494,12 +493,11 @@ def api_admin_upload_file():
             pass
         return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
 
-@app.route("/api/files")
+@@app.route("/api/files")
 def api_files():
     rows = File.query.order_by(File.uploaded_at.desc()).all()
     data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
     return jsonify(data)
-
 @app.route("/view/file/<int:file_id>")
 def view_file(file_id):
     frow = File.query.get(file_id)
@@ -559,6 +557,10 @@ def api_payment_proof():
             msg["From"] = EMAIL_FROM or SMTP_USER
             msg["To"] = EMAIL_TO
 
+            # If email provided by client, set Reply-To so you can reply to them easily
+            if email:
+                msg["Reply-To"] = email
+
             body_lines = [
                 f"Name: {name}",
                 f"Email: {email or 'N/A'}",
@@ -576,6 +578,7 @@ def api_payment_proof():
             maintype, subtype = ctype.split("/", 1)
             with open(path, "rb") as fp:
                 file_data = fp.read()
+            # attach original filename
             msg.add_attachment(file_data, maintype=maintype, subtype=subtype, filename=f.filename)
 
             context = ssl.create_default_context()
