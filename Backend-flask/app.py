@@ -36,7 +36,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(24))
 MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 512 * 1024 * 1024))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 
-# Render/Postgres DB you gave
+# Render/Postgres DB you gave (can override with DATABASE_URL env var)
 POSTGRES_URL = (
     "postgresql://crypto_trading_ef73_user:ExqngrM4GrJX6FmefoA1g3BRPu2kF0tk@"
     "dpg-d37inupr0fns739ha5r0-a.oregon-postgres.render.com/crypto_trading_ef73"
@@ -147,6 +147,7 @@ def validate_session(token):
     return s
 
 def admin_auth_ok(req):
+    # Header-based admin shortcut
     header = req.headers.get("X-ADMIN-PW")
     if header and header == ADMIN_PASSWORD:
         return True
@@ -159,6 +160,8 @@ def admin_auth_ok(req):
     return False
 
 def set_session_cookie(resp, token):
+    # Only mark cookie secure / SameSite=None when the current request is secure.
+    # This avoids cookies being dropped when running over plain HTTP (local dev).
     samesite_val = "None" if COOKIE_SECURE and request.is_secure else "Lax"
     secure_flag = bool(COOKIE_SECURE and request.is_secure)
     resp.set_cookie("session_token", token, httponly=True, samesite=samesite_val, secure=secure_flag, path="/")
@@ -290,9 +293,11 @@ def api_login():
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
 
+    # Only treat revoked as blocking for non-admin PINs
     if p.revoked and p.pin != ADMIN_PIN:
         return jsonify({"success": False, "error": "pin_revoked"}), 403
 
+    # assign on first use
     if not p.device_id:
         p.device_id = device_id
         p.ip = ip
@@ -303,12 +308,15 @@ def api_login():
         set_session_cookie(resp, token)
         return resp
 
+    # if device matches -> issue session
     if p.device_id == device_id:
         token = create_session(p.id, device_id)
         resp = jsonify({"success": True, "message": "logged_in", "role": ("admin" if p.pin == ADMIN_PIN else "user")})
         set_session_cookie(resp, token)
         return resp
 
+    # different device:
+    # If admin PIN -> do NOT revoke. Update assigned device (admin non-revocable).
     if p.pin == ADMIN_PIN:
         p.device_id = device_id
         p.ip = ip
@@ -319,6 +327,7 @@ def api_login():
         set_session_cookie(resp, token)
         return resp
 
+    # otherwise revoke the pin for security
     p.revoked = True
     db.session.add(p); db.session.commit()
     return jsonify({"success": False, "error": "revoked_due_to_multiple_devices", "message": "PIN revoked because it was used on another device."}), 403
@@ -347,7 +356,7 @@ def api_logout():
 @app.route("/api/videos")
 def api_videos():
     rows = Video.query.order_by(Video.uploaded_at.desc()).all()
-    return jsonify([{"id": r.id, "title": r.title, "uploaded_at": r.uploaded_at.isoformat()} for r in rows])
+    return jsonify([{"id": r.id, "title": r.title, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows])
 
 # Range-capable streaming endpoint (supports GET + HEAD + HTTP Range requests)
 @app.route("/stream/<int:video_id>", methods=["GET", "HEAD"])
@@ -435,7 +444,7 @@ def stream_video(video_id):
     }
     return Response(full_generator(), headers=headers)
 
-# -------------- API: Admin (small file upload kept) -------------
+# -------------- API: Admin (upload endpoints) -------------
 @app.route("/api/admin/upload_video", methods=["POST"])
 def api_admin_upload_video():
     if not admin_auth_ok(request):
@@ -510,120 +519,4 @@ def api_admin_upload_video_chunk():
     chunk_dir = os.path.join(CHUNKS_FOLDER, upload_id)
     os.makedirs(chunk_dir, exist_ok=True)
     chunk_filename = f"{chunk_index}_{secrets.token_hex(6)}.part"
-    chunk_path = os.path.join(chunk_dir, chunk_filename)
-    try:
-        chunk.save(chunk_path)
-        logger.info("Saved chunk %s for upload %s", chunk_index, upload_id)
-        return jsonify({"success": True, "saved_chunk": chunk_filename})
-    except Exception as exc:
-        logger.exception("Failed to save chunk: %s", exc)
-        return jsonify({"success": False, "error": "chunk_save_failed", "message": str(exc)}), 500
-
-@app.route("/api/admin/finish_video_upload", methods=["POST"])
-def api_admin_finish_video_upload():
-    """
-    Assemble all chunks and finalize an uploaded video.
-    JSON body:
-      { upload_id: "...", filename: "original.mp4", title: "Lesson title" }
-    """
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-
-    data = request.get_json() or {}
-    upload_id = (data.get("upload_id") or "").strip()
-    filename = (data.get("filename") or "").strip()
-    title = (data.get("title") or "").strip()
-
-    if not upload_id or not filename or not title:
-        return jsonify({"success": False, "error": "missing_fields"}), 400
-
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(filename)
-    try:
-        final_path = assemble_chunks(upload_id, safe_name)
-        v = Video(title=title, filename=safe_name, uploaded_at=now())
-        db.session.add(v); db.session.commit()
-        return jsonify({"success": True, "video_id": v.id})
-    except FileNotFoundError:
-        return jsonify({"success": False, "error": "chunks_missing"}), 400
-    except Exception as exc:
-        logger.exception("finish_video_upload failed: %s", exc)
-        return jsonify({"success": False, "error": "assemble_failed", "message": str(exc)}), 500
-
-# Admin file endpoints (upload/list/delete)
-@app.route("/api/admin/upload_file", methods=["POST"])
-def api_admin_upload_file():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    title = request.form.get("title", "").strip()
-    f = request.files.get("file")
-    if not f or not title:
-        return jsonify({"success": False, "error": "missing_title_or_file"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        f.save(path)
-        file_row = File(title=title, filename=safe_name, uploaded_at=now())
-        db.session.add(file_row)
-        db.session.commit()
-        return jsonify({"success": True, "file_id": file_row.id})
-    except Exception as exc:
-        logger.exception("upload_file failed: %s", exc)
-        db.session.rollback()
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
-
-@app.route("/api/files")
-def api_files():
-    rows = File.query.order_by(File.uploaded_at.desc()).all()
-    data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
-    return jsonify(data)
-
-@app.route("/view/file/<int:file_id>")
-def view_file(file_id):
-    frow = File.query.get(file_id)
-    if not frow:
-        return "Not found", 404
-    filename = frow.filename
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    if not os.path.exists(file_path):
-        return "File missing", 404
-    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], filename))
-    resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    return resp
-
-# -------------- API: Payment ------------
-@app.route("/api/payment/proof", methods=["POST"])
-def api_payment_proof():
-    name = request.form.get("name", "")
-    email = request.form.get("email", "")
-    course_title = request.form.get("course_title", "")
-    f = request.files.get("proof")
-    if not name or not f:
-        return jsonify({"success": False, "error": "missing_fields"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.static_folder, safe_name)
-    f.save(path)
-    pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
-    db.session.add(pay); db.session.commit()
-    return jsonify({"success": True})
-
-# -------------- Health -------------------
-@app.route("/api/health")
-def health():
-    try:
-        db.session.execute("SELECT 1")
-        return jsonify({"ok": True})
-    except Exception as e:
-        logger.exception("Health check failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-# --------------- Run ---------------------
-if __name__ == "__main__":
-    debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    chunk_path = os.path.jo
