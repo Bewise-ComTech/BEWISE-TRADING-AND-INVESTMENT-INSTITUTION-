@@ -51,6 +51,11 @@
   .btn-secondary{ background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfefff; padding:8px 10px; border-radius:8px; cursor:pointer }
   .btn-primary{ background:linear-gradient(90deg,#06b6d4,#0891b2); color:#042a2b; padding:8px 12px; border-radius:8px; font-weight:800; cursor:pointer }
 
+  /* play/pause controls */
+  .vp-controls { display:flex; gap:8px; margin-top:8px; align-items:center; }
+  .vp-btn { padding:8px 12px; border-radius:8px; border:0; cursor:pointer; font-weight:700; background:#06b6d4; color:#042a2b; }
+  .vp-btn.pause { background:#ef4444; color:#fff; }
+
   @media (max-width:720px){
     .encourage-wrap{ grid-template-columns: 1fr; }
     .encourage-img{ width:100%; height:180px; }
@@ -66,7 +71,7 @@
 
   <!-- Top-right button -->
   <div class="header-actions">
-    
+
     <button id="topHelpBtn" class="top-btn secondary" aria-label="Help">Need Help?</button>
   </div>
 </header>
@@ -74,7 +79,7 @@
 <div class="wrap">
   <p class="intro">Watch course videos below. We do our best to prevent downloads; however, screen capture protection is limited in web browsers. If you experience playback issues, re-login from the main page.</p>
 
- 
+
   </div>
 
   <!-- Grid of videos -->
@@ -150,14 +155,76 @@
 
   // UI refs
   const grid = document.getElementById('grid');
-  const topFilesBtn = document.getElementById('topFilesBtn');
   const topHelpBtn = document.getElementById('topHelpBtn');
+
+  // track blob URLs to revoke later
+  const createdObjectUrls = new Set();
+
+  // fallback: fetch video as blob and set object URL (used only when direct <video src> fails)
+  async function fetchVideoBlobToSrc(videoEl, streamPath) {
+    try {
+      const resp = await fetch(streamPath, { credentials: 'include' });
+      if(!resp.ok) throw new Error('Fetch failed: ' + resp.status);
+      const contentType = resp.headers.get('Content-Type') || 'video/mp4';
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(new Blob([blob], { type: contentType }));
+      createdObjectUrls.add(url);
+      videoEl.src = url;
+      // attempt to play automatically if it was requested
+      try { await videoEl.play(); } catch(e){ /* user gesture required — fine */ }
+      return true;
+    } catch (err) {
+      console.error('fetchVideoBlobToSrc failed', err);
+      return false;
+    }
+  }
 
   // load videos from backend and render
   async function loadVideos(){
     const res = await safeJson('/api/videos', { credentials: 'include' });
     if(res.ok && Array.isArray(res.body)) return res.body;
     return [];
+  }
+
+  function createVPButtons(videoEl){
+    const wrapper = document.createElement('div');
+    wrapper.className = 'vp-controls';
+
+    const playBtn = document.createElement('button');
+    playBtn.className = 'vp-btn play';
+    playBtn.type = 'button';
+    playBtn.innerText = 'Play';
+
+    const pauseBtn = document.createElement('button');
+    pauseBtn.className = 'vp-btn pause';
+    pauseBtn.type = 'button';
+    pauseBtn.innerText = 'Pause';
+    pauseBtn.style.display = 'none';
+
+    playBtn.addEventListener('click', async ()=>{
+      try {
+        await videoEl.play();
+      } catch (err) {
+        // If play fails because the source isn't playable, try the blob fallback
+        console.warn('play() failed, attempting blob fallback', err);
+        await showMessage('Playback issue','Attempting an alternative playback method. This may take a few seconds for large files.');
+        const ok = await fetchVideoBlobToSrc(videoEl, videoEl.getAttribute('data-src'));
+        if(!ok) await showMessage('Playback failed','Unable to play this video. Please re-login or contact admin.');
+      }
+    });
+
+    pauseBtn.addEventListener('click', ()=>{
+      try { videoEl.pause(); } catch(e){ /* ignore */ }
+    });
+
+    // update button visibility on play/pause events
+    videoEl.addEventListener('play', ()=>{ playBtn.style.display='none'; pauseBtn.style.display='inline-block'; });
+    videoEl.addEventListener('pause', ()=>{ pauseBtn.style.display='none'; playBtn.style.display='inline-block'; });
+    videoEl.addEventListener('ended', ()=>{ pauseBtn.style.display='none'; playBtn.style.display='inline-block'; });
+
+    wrapper.appendChild(playBtn);
+    wrapper.appendChild(pauseBtn);
+    return wrapper;
   }
 
   function renderVideos(videos){
@@ -171,9 +238,13 @@
       vid.controls = true;
       vid.setAttribute('controlsList','nodownload nofullscreen noremoteplayback');
       vid.preload = 'metadata';
-      // video source: stream route from backend
-      vid.src = '/stream/' + v.id;
-      // on play verify session is still active
+      // keep original stream path in data attribute (for fallback)
+      const streamPath = '/stream/' + v.id;
+      vid.setAttribute('data-src', streamPath);
+      // video source: stream route from backend (keeps everything as-is)
+      vid.src = streamPath;
+
+      // on play verify session is still active (same as before)
       vid.addEventListener('play', async function onPlay(){
         try {
           const r = await fetch('/api/check_session', {credentials:'include'});
@@ -187,10 +258,31 @@
           vid.removeEventListener('play', onPlay);
         }
       });
+
+      // If browser reports an error on the video element, attempt blob fallback once
+      let triedFallback = false;
+      vid.addEventListener('error', async (ev) => {
+        console.warn('video element error event', ev);
+        if(triedFallback) return;
+        triedFallback = true;
+        await showMessage('Playback issue','Automatic retry: attempting alternative playback method (may take a few seconds).');
+        const ok = await fetchVideoBlobToSrc(vid, streamPath);
+        if(!ok){
+          await showMessage('Playback failed','Unable to play this video. Try re-logging or contact admin.');
+        }
+      });
+
       // hinder right click/save
       vid.addEventListener('contextmenu', e => e.preventDefault());
+
       const t = document.createElement('div'); t.style.marginTop='8px'; t.style.fontWeight='700'; t.innerText = v.title || 'Untitled';
-      card.appendChild(vid); card.appendChild(t); grid.appendChild(card);
+
+      card.appendChild(vid);
+      // play/pause buttons
+      const controls = createVPButtons(vid);
+      card.appendChild(controls);
+
+      card.appendChild(t); grid.appendChild(card);
     });
   }
 
@@ -199,25 +291,25 @@
   renderVideos(videos);
 
   // top-right button minimal behaviors
-  topFilesBtn.addEventListener('click', async ()=>{
-    await showMessage('Files','Files are managed in the Admin panel. If you were given file access, ask the admin to share the link.');
-  });
   topHelpBtn.addEventListener('click', async ()=>{
     await showMessage('Need help','If you need assistance, contact support or reach out to the admin. We are here to help you learn.');
   });
 
   // UX protections & polish
   document.addEventListener('contextmenu', e => {
-    // allow right-click on non-video elements, but block default on videos by delegating earlier
-    // This global handler is conservative: only prevents when target is a video or inside .card
     const el = e.target;
-    if(el && (el.tagName === 'VIDEO' || el.closest && el.closest('.card'))){
+    if(el && (el.tagName === 'VIDEO' || (el.closest && el.closest('.card')))){
       e.preventDefault();
     }
   });
 
   // Blur videos when page hidden
   document.addEventListener('visibilitychange', ()=>{ document.querySelectorAll('video').forEach(v=> v.style.filter = document.visibilityState === 'visible' ? 'none' : 'blur(6px)'); });
+
+  // revoke created object URLs when leaving
+  window.addEventListener('beforeunload', ()=>{
+    for(const u of createdObjectUrls) try{ URL.revokeObjectURL(u);}catch(e){}
+  });
 
 })();
 </script>
