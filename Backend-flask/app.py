@@ -3,11 +3,12 @@ import os
 import secrets
 import logging
 import shutil
+import mimetypes
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from flask import (
     Flask, request, jsonify, render_template, send_from_directory,
-    make_response, abort
+    make_response, abort, Response
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -48,7 +49,9 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.secret_key = SECRET_KEY
 
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+# Allow X-ADMIN-PW and usual headers; keep credentials support
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True,
+     allow_headers=["Content-Type", "X-ADMIN-PW", "Authorization", "X-Requested-With"])
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("crypto_training")
@@ -214,6 +217,53 @@ def handle_exception(e):
         resp.headers["Content-Type"] = "text/html; charset=utf-8"
         return resp
 
+# -------------- Range / partial content support --------------
+def send_file_partial(path):
+    """
+    Serve a file supporting Range requests (bytes).
+    Returns a Flask Response object.
+    """
+    file_size = os.path.getsize(path)
+    range_header = request.headers.get('Range', None)
+    if not range_header:
+        mime_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
+        return send_from_directory(os.path.dirname(path), os.path.basename(path), mimetype=mime_type, as_attachment=False)
+
+    # Parse Range header: "bytes=start-end"
+    try:
+        ranges = range_header.strip().split('=')[1]
+        start_str, end_str = ranges.split('-')
+        start = int(start_str) if start_str else 0
+        end = int(end_str) if end_str else file_size - 1
+    except Exception:
+        return Response(status=416)
+
+    if start >= file_size:
+        return Response(status=416)
+
+    end = min(end, file_size - 1)
+    length = end - start + 1
+
+    def generate():
+        with open(path, 'rb') as f:
+            f.seek(start)
+            remaining = length
+            chunk_size = 64 * 1024
+            while remaining > 0:
+                read_size = min(chunk_size, remaining)
+                data = f.read(read_size)
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+
+    mime_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
+    rv = Response(generate(), status=206, mimetype=mime_type)
+    rv.headers.add('Content-Range', f'bytes {start}-{end}/{file_size}')
+    rv.headers.add('Accept-Ranges', 'bytes')
+    rv.headers.add('Content-Length', str(length))
+    return rv
+
 # -------------- Page Routes & safe rendering --------------
 def safe_render(name):
     candidates = [f"{name}.html"]
@@ -339,6 +389,13 @@ def api_logout():
     resp.delete_cookie("session_token", path="/")
     return resp
 
+# debug helper - returns info about session presence (useful when testing admin)
+@app.route("/api/debug/session")
+def debug_session():
+    token = request.cookies.get("session_token") or request.headers.get("X-ADMIN-PW")
+    s = validate_session(token) if token and token != ADMIN_PASSWORD else None
+    return jsonify({"token_present": bool(token), "session_valid": bool(s)})
+
 # -------------- API: Videos -------------
 @app.route("/api/videos")
 def api_videos():
@@ -347,6 +404,7 @@ def api_videos():
 
 @app.route("/stream/<int:video_id>")
 def stream_video(video_id):
+    # Protected streaming route (requires session)
     token = request.cookies.get("session_token")
     s = validate_session(token)
     if not s:
@@ -357,10 +415,18 @@ def stream_video(video_id):
     path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
     if not os.path.exists(path):
         return "File missing", 404
-    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], v.filename))
-    resp.headers["Content-Disposition"] = f'inline; filename="{v.filename}"'
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    return resp
+    return send_file_partial(path)
+
+# Public streaming endpoint for course pages (supports Range)
+@app.route("/api/media/<int:video_id>")
+def public_media(video_id):
+    v = Video.query.get(video_id)
+    if not v:
+        return jsonify({"error": "not_found"}), 404
+    path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
+    if not os.path.exists(path):
+        return jsonify({"error": "file_missing"}), 404
+    return send_file_partial(path)
 
 # -------------- API: Admin (small file upload kept) -------------
 @app.route("/api/admin/upload_video", methods=["POST"])
@@ -459,102 +525,4 @@ def api_admin_finish_video_upload():
     if not admin_auth_ok(request):
         return jsonify({"success": False, "error": "admin_auth_required"}), 403
 
-    data = request.get_json() or {}
-    upload_id = (data.get("upload_id") or "").strip()
-    filename = (data.get("filename") or "").strip()
-    title = (data.get("title") or "").strip()
-
-    if not upload_id or not filename or not title:
-        return jsonify({"success": False, "error": "missing_fields"}), 400
-
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(filename)
-    try:
-        final_path = assemble_chunks(upload_id, safe_name)
-        v = Video(title=title, filename=safe_name, uploaded_at=now())
-        db.session.add(v); db.session.commit()
-        return jsonify({"success": True, "video_id": v.id})
-    except FileNotFoundError:
-        return jsonify({"success": False, "error": "chunks_missing"}), 400
-    except Exception as exc:
-        logger.exception("finish_video_upload failed: %s", exc)
-        return jsonify({"success": False, "error": "assemble_failed", "message": str(exc)}), 500
-
-# Admin file endpoints (upload/list/delete)
-@app.route("/api/admin/upload_file", methods=["POST"])
-def api_admin_upload_file():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    title = request.form.get("title", "").strip()
-    f = request.files.get("file")
-    if not f or not title:
-        return jsonify({"success": False, "error": "missing_title_or_file"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        f.save(path)
-        file_row = File(title=title, filename=safe_name, uploaded_at=now())
-        db.session.add(file_row)
-        db.session.commit()
-        return jsonify({"success": True, "file_id": file_row.id})
-    except Exception as exc:
-        logger.exception("upload_file failed: %s", exc)
-        db.session.rollback()
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
-
-@app.route("/api/files")
-def api_files():
-    rows = File.query.order_by(File.uploaded_at.desc()).all()
-    data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
-    return jsonify(data)
-
-@app.route("/view/file/<int:file_id>")
-def view_file(file_id):
-    frow = File.query.get(file_id)
-    if not frow:
-        return "Not found", 404
-    filename = frow.filename
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    if not os.path.exists(file_path):
-        return "File missing", 404
-    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], filename))
-    resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    return resp
-
-# -------------- API: Payment ------------
-@app.route("/api/payment/proof", methods=["POST"])
-def api_payment_proof():
-    name = request.form.get("name", "")
-    email = request.form.get("email", "")
-    course_title = request.form.get("course_title", "")
-    f = request.files.get("proof")
-    if not name or not f:
-        return jsonify({"success": False, "error": "missing_fields"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.static_folder, safe_name)
-    f.save(path)
-    pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
-    db.session.add(pay); db.session.commit()
-    return jsonify({"success": True})
-
-# -------------- Health -------------------
-@app.route("/api/health")
-def health():
-    try:
-        db.session.execute("SELECT 1")
-        return jsonify({"ok": True})
-    except Exception as e:
-        logger.exception("Health check failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-# --------------- Run ---------------------
-if __name__ == "__main__":
-    debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
+    data = request
