@@ -3,7 +3,10 @@ import os
 import secrets
 import logging
 import shutil
+import mimetypes
+import math
 from datetime import datetime, timedelta
+from flask import Response
 from werkzeug.utils import secure_filename
 from flask import (
     Flask, request, jsonify, render_template, send_from_directory,
@@ -357,22 +360,89 @@ def api_videos():
     rows = Video.query.order_by(Video.uploaded_at.desc()).all()
     return jsonify([{"id": r.id, "title": r.title, "uploaded_at": r.uploaded_at.isoformat()} for r in rows])
 
+
+
 @app.route("/stream/<int:video_id>")
 def stream_video(video_id):
+    # keep your same session validation/auth behavior
     token = request.cookies.get("session_token")
     s = validate_session(token)
     if not s:
         return "Unauthorized", 401
+
     v = Video.query.get(video_id)
     if not v:
         return "Not found", 404
+
     path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
     if not os.path.exists(path):
+        # explicit 404 so client sees clear error
         return "File missing", 404
-    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], v.filename))
-    resp.headers["Content-Disposition"] = f'inline; filename="{v.filename}"'
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    return resp
+
+    file_size = os.path.getsize(path)
+    mime_type, _ = mimetypes.guess_type(path)
+    if not mime_type:
+        mime_type = "application/octet-stream"
+
+    range_header = request.headers.get("Range", None)
+    if range_header:
+        # Example Range header: "bytes=0-1023"
+        try:
+            units, range_spec = range_header.strip().split("=", 1)
+            if units != "bytes":
+                raise ValueError("Only 'bytes' unit supported")
+            start_str, end_str = range_spec.split("-", 1)
+            start = int(start_str) if start_str else 0
+            end = int(end_str) if end_str else file_size - 1
+            if start > end or end >= file_size:
+                # Range not satisfiable
+                return Response(status=416, headers={
+                    "Content-Range": f"bytes */{file_size}"
+                })
+        except Exception:
+            # Malformed Range header -> ignore and send full file
+            range_header = None
+        else:
+            # Stream the requested byte range
+            length = end - start + 1
+            def generate():
+                with open(path, "rb") as f:
+                    f.seek(start)
+                    remaining = length
+                    chunk_size = 64 * 1024
+                    while remaining > 0:
+                        read_len = min(chunk_size, remaining)
+                        chunk = f.read(read_len)
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            headers = {
+                "Content-Type": mime_type,
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(length),
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            }
+            return Response(generate(), status=206, headers=headers)
+
+    # No valid Range header -> return full file
+    def full_generator():
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+
+    headers = {
+        "Content-Type": mime_type,
+        "Content-Length": str(file_size),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    }
+    return Response(full_generator(), headers=headers)
 
 # -------------- API: Admin -------------
 @app.route("/api/admin/upload_video", methods=["POST"])
