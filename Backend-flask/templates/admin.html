@@ -353,7 +353,7 @@
           }
         }
       } else {
-        // file too big — do chunked upload directly
+           // file too big — do chunked upload directly
         uploadResult.innerText = 'Uploading in chunks...';
         const result = await uploadLargeFile(file, title, (p)=> {
           uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
@@ -371,4 +371,29 @@
   });    
     
   btnUploadFile.addEventListener('click', async ()=>{    
-    const title = (fileTitle.valu
+    const title = (fileTitle.value||'').trim(); const file = anyFile.files[0];    
+    if(!title || !file){ uploadFileResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }    
+    uploadFileResult.innerText='Uploading...'; btnUploadFile.disabled=true;    
+    try {    
+      const fd = new FormData(); fd.append('title', title); fd.append('file', file);    
+      const r = await apiFetch('/admin/upload_file', { method:'POST', body: fd });    
+      const j = await r.json();    
+      if(r.ok && j.success){ uploadFileResult.innerText='Uploaded ✓'; fileTitle.value=''; anyFile.value=''; loadVideos(); await showMessage('Uploaded','File uploaded successfully.'); } else { uploadFileResult.innerText='Upload failed: ' + (j.error||j.message||'server'); await showMessage('Error','Upload failed: ' + (j.error||j.message||'server')); }    
+    } catch(e){ uploadFileResult.innerText='Network error'; console.error('upload_file error', e); await showMessage('Network','Network error while uploading file'); }    
+    btnUploadFile.disabled=false;    
+  });    
+    
+  btnRefresh.addEventListener('click', ()=>{ loadPins(); loadVideos(); });    
+    
+  btnLogout.addEventListener('click', async ()=>{    
+    const ok = confirm('Logout admin?'); if(!ok) return;    
+    try { await apiFetch('/logout', { method:'POST' }); } catch(e){ console.error('logout error', e); }    
+    sessionStorage.removeItem('training_is_admin'); window.location.href = UI_BASE + '/';    
+  });    
+    
+  loadPins(); loadVideos();    
+    
+})();    
+</script> 
+   </body>    
+</html>
