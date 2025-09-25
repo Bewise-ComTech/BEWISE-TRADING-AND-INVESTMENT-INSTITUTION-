@@ -2,8 +2,11 @@
 import os
 import secrets
 import logging
-import re
+import smtplib
+import ssl
 import mimetypes
+import re
+from email.message import EmailMessage
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from flask import (
@@ -32,8 +35,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(24))
 MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 200 * 1024 * 1024))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 
-# Render/Postgres DB you gave
-# (You can also set DATABASE_URL as env variable and use that instead)
+# Render/Postgres DB you gave (default)
 POSTGRES_URL = (
     "postgresql://crypto_trading_ef73_user:ExqngrM4GrJX6FmefoA1g3BRPu2kF0tk@"
     "dpg-d37inupr0fns739ha5r0-a.oregon-postgres.render.com/crypto_trading_ef73"
@@ -341,7 +343,7 @@ def api_videos():
     rows = Video.query.order_by(Video.uploaded_at.desc()).all()
     return jsonify([{"id": r.id, "title": r.title, "uploaded_at": r.uploaded_at.isoformat()} for r in rows])
 
-# Replaced stream endpoint: Range-aware streaming with token fallback
+# Range-aware streaming endpoint (supports Range header and token fallback)
 @app.route("/stream/<int:video_id>")
 def stream_video(video_id):
     # token fallback: accept token in query param if cookie not present
@@ -461,10 +463,8 @@ def api_admin_revoke_pin():
     # support numeric id or 6-digit pin string
     p = None
     try:
-        # try numeric id first
         p = Pin.query.get(int(pin_id))
     except Exception:
-        # fallback: lookup by pin string
         p = Pin.query.filter_by(pin=str(pin_id)).first()
 
     if not p:
@@ -497,7 +497,7 @@ def api_admin_delete_pin():
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
 
-    # Warning: prevent deleting admin pin
+    # Prevent deleting admin pin
     if p.pin == ADMIN_PIN:
         return jsonify({"success": False, "error": "cannot_delete_admin_pin", "message": "Admin PIN cannot be deleted."}), 403
     try:
@@ -530,88 +530,4 @@ def api_admin_delete_video():
         db.session.rollback()
         return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
     try:
-        if os.path.exists(path):
-            os.remove(path)
-    except Exception as exc:
-        logger.exception("Failed to remove video file %s: %s", path, exc)
-        return jsonify({"success": True, "warning": "db_deleted_but_file_remove_failed", "message": str(exc)})
-    return jsonify({"success": True})
-
-# Admin file endpoints (upload/list/delete)
-@app.route("/api/admin/upload_file", methods=["POST"])
-def api_admin_upload_file():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    title = request.form.get("title", "").strip()
-    f = request.files.get("file")
-    if not f or not title:
-        return jsonify({"success": False, "error": "missing_title_or_file"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        f.save(path)
-        file_row = File(title=title, filename=safe_name, uploaded_at=now())
-        db.session.add(file_row)
-        db.session.commit()
-        return jsonify({"success": True, "file_id": file_row.id})
-    except Exception as exc:
-        logger.exception("upload_file failed: %s", exc)
-        db.session.rollback()
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
-
-@app.route("/api/files")
-def api_files():
-    rows = File.query.order_by(File.uploaded_at.desc()).all()
-    data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
-    return jsonify(data)
-
-@app.route("/view/file/<int:file_id>")
-def view_file(file_id):
-    frow = File.query.get(file_id)
-    if not frow:
-        return "Not found", 404
-    filename = frow.filename
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    if not os.path.exists(file_path):
-        return "File missing", 404
-    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], filename))
-    resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    return resp
-
-# -------------- API: Payment ------------
-@app.route("/api/payment/proof", methods=["POST"])
-def api_payment_proof():
-    name = request.form.get("name", "")
-    email = request.form.get("email", "")
-    course_title = request.form.get("course_title", "")
-    f = request.files.get("proof")
-    if not name or not f:
-        return jsonify({"success": False, "error": "missing_fields"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.static_folder, safe_name)
-    f.save(path)
-    pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
-    db.session.add(pay); db.session.commit()
-    return jsonify({"success": True})
-
-# -------------- Health -------------------
-@app.route("/api/health")
-def health():
-    try:
-        db.session.execute("SELECT 1")
-        return jsonify({"ok": True})
-    except Exception as e:
-        logger.exception("Health check failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-# --------------- Run ---------------------
-if __name__ == "__main__":
-    debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+      
