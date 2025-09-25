@@ -478,36 +478,7 @@ def api_admin_revoke_pin():
     db.session.add(p); db.session.commit()
     return jsonify({"success": True})
 
-@app.route("/api/admin/delete_pin", methods=["POST"])
-def api_admin_delete_pin():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    data = request.get_json() or {}
-    pin_id = data.get("pin_id")
-    if not pin_id:
-        return jsonify({"success": False, "error": "missing_pin_id"}), 400
 
-    # support numeric id or 6-digit pin string
-    p = None
-    try:
-        p = Pin.query.get(int(pin_id))
-    except Exception:
-        p = Pin.query.filter_by(pin=str(pin_id)).first()
-
-    if not p:
-        return jsonify({"success": False, "error": "pin_not_found"}), 404
-
-    # Prevent deleting admin pin
-    if p.pin == ADMIN_PIN:
-        return jsonify({"success": False, "error": "cannot_delete_admin_pin", "message": "Admin PIN cannot be deleted."}), 403
-    try:
-        db.session.delete(p)
-        db.session.commit()
-        return jsonify({"success": True})
-    except Exception as exc:
-        logger.exception("Failed to delete pin %s: %s", pin_id, exc)
-        db.session.rollback()
-        return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
 
 
 @app.route("/api/admin/delete_pin", methods=["POST"])
