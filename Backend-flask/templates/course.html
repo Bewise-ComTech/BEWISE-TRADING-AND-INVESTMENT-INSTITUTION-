@@ -170,8 +170,7 @@
       const url = URL.createObjectURL(new Blob([blob], { type: contentType }));
       createdObjectUrls.add(url);
       videoEl.src = url;
-      // attempt to play automatically if it was requested
-      try { await videoEl.play(); } catch(e){ /* user gesture required — fine */ }
+      // DO NOT auto-play. User must press Play (gesture).
       return true;
     } catch (err) {
       console.error('fetchVideoBlobToSrc failed', err);
@@ -207,7 +206,7 @@
       } catch (err) {
         // If play fails because the source isn't playable, try the blob fallback
         console.warn('play() failed, attempting blob fallback', err);
-        await showMessage('Playback issue','Attempting an alternative playback method. This may take a few seconds for large files.');
+        await showMessage('Playback issue','Attempting an alternative playback method. After the retry completes, press Play again.');
         const ok = await fetchVideoBlobToSrc(videoEl, videoEl.getAttribute('data-src'));
         if(!ok) await showMessage('Playback failed','Unable to play this video. Please re-login or contact admin.');
       }
@@ -265,7 +264,7 @@
         console.warn('video element error event', ev);
         if(triedFallback) return;
         triedFallback = true;
-        await showMessage('Playback issue','Automatic retry: attempting alternative playback method (may take a few seconds).');
+        await showMessage('Playback issue','Automatic retry: attempting alternative playback method (may take a few seconds). After the retry completes, press Play again.');
         const ok = await fetchVideoBlobToSrc(vid, streamPath);
         if(!ok){
           await showMessage('Playback failed','Unable to play this video. Try re-logging or contact admin.');
