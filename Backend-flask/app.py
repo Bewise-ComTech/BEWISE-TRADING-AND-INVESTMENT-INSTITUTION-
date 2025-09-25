@@ -32,13 +32,13 @@ SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(24))
 MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 200 * 1024 * 1024))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 
-# Render/Postgres DB you gave
+# Render/Postgres DB (fallback if DATABASE_URL not set)
 POSTGRES_URL = (
     "postgresql://crypto_trading_ef73_user:ExqngrM4GrJX6FmefoA1g3BRPu2kF0tk@"
     "dpg-d37inupr0fns739ha5r0-a.oregon-postgres.render.com/crypto_trading_ef73"
 )
 
-# Optional SMTP config left unchanged (if you later want to send emails)
+# SMTP/email config (optional)
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
 SMTP_USER = os.environ.get("SMTP_USER")
@@ -54,7 +54,7 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.secret_key = SECRET_KEY
 
-# NOTE: keep supports_credentials True; if using cookies cross-origin, set explicit origin (not "*")
+# Keep supports_credentials True if you use cookies from frontend
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 logging.basicConfig(level=logging.INFO)
@@ -124,22 +124,17 @@ def create_session(pin_id, device_id, hours=24):
     return token
 
 def validate_session(token):
-    """
-    Validate session token and return Session object if valid, otherwise None.
-    """
     if not token:
         return None
     s = Session.query.filter_by(token=token).first()
     if not s:
         return None
-    # expiration check
     if s.expires_at < now():
         try:
             db.session.delete(s); db.session.commit()
         except Exception:
             pass
         return None
-    # pin must exist
     p = Pin.query.get(s.pin_id)
     if not p:
         try:
@@ -147,7 +142,6 @@ def validate_session(token):
         except Exception:
             pass
         return None
-    # if pin revoked and not admin, kill session (security)
     if p.revoked and p.pin != ADMIN_PIN:
         try:
             db.session.delete(s); db.session.commit()
@@ -157,12 +151,6 @@ def validate_session(token):
     return s
 
 def get_request_token(req):
-    """
-    Extract token from:
-      1) Authorization: Bearer <token>
-      2) query param token=...
-      3) cookie session_token
-    """
     auth = req.headers.get("Authorization", "")
     if auth and auth.lower().startswith("bearer "):
         return auth.split(None, 1)[1].strip()
@@ -172,16 +160,9 @@ def get_request_token(req):
     return req.cookies.get("session_token")
 
 def admin_auth_ok(req):
-    """
-    Checks admin authentication:
-      - X-ADMIN-PW header (ADMIN_PASSWORD)
-      - Bearer token or cookie that corresponds to admin PIN session
-    """
-    # header-based admin shortcut
-    header_pw = req.headers.get("X-ADMIN-PW")
-    if header_pw and header_pw == ADMIN_PASSWORD:
+    header = req.headers.get("X-ADMIN-PW")
+    if header and header == ADMIN_PASSWORD:
         return True
-
     token = get_request_token(req)
     if not token:
         return False
@@ -368,9 +349,6 @@ def api_videos():
     return jsonify([{"id": r.id, "title": r.title, "uploaded_at": r.uploaded_at.isoformat()} for r in rows])
 
 def _stream_file_range(path):
-    """
-    Serve file supporting Range requests (partial content).
-    """
     if not os.path.exists(path):
         return "File missing", 404
 
@@ -378,7 +356,7 @@ def _stream_file_range(path):
     content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
     range_header = request.headers.get('Range', None)
     if not range_header:
-        # return full file
+        # return full file stream (useful for download or when browser doesn't use ranges)
         def full_stream():
             with open(path, 'rb') as f:
                 chunk = f.read(8192)
@@ -391,7 +369,6 @@ def _stream_file_range(path):
         rv.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         return rv
 
-    # parse range header
     m = re.search(r'bytes=(\d+)-(\d*)', range_header)
     if not m:
         return Response(status=416)
@@ -425,13 +402,6 @@ def _stream_file_range(path):
 
 @app.route("/stream/<int:video_id>")
 def stream_video(video_id):
-    """
-    Stream videos with authentication support via:
-      - query token (?token=...)
-      - Authorization: Bearer <token>
-      - cookie session_token
-    Also supports Range (partial) requests for large files.
-    """
     token = get_request_token(request)
     s = validate_session(token)
     if not s:
@@ -524,6 +494,7 @@ def api_admin_delete_pin():
         db.session.rollback()
         return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
 
+
 @app.route("/api/admin/delete_video", methods=["POST"])
 def api_admin_delete_video():
     if not admin_auth_ok(request):
@@ -610,7 +581,6 @@ def api_payment_proof():
     if not name or not f:
         return jsonify({"success": False, "error": "missing_fields"}), 400
 
-    # Save to uploads folder (safe location)
     safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
     path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
     try:
@@ -619,7 +589,6 @@ def api_payment_proof():
         logger.exception("Failed to save proof file: %s", exc)
         return jsonify({"success": False, "error": "save_failed", "message": str(exc)}), 500
 
-    # store payment record
     try:
         pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
         db.session.add(pay)
@@ -633,8 +602,7 @@ def api_payment_proof():
             pass
         return jsonify({"success": False, "error": "db_failed", "message": str(exc)}), 500
 
-    # Sending email is optional and depends on SMTP_* env vars; keep behavior unchanged.
-    # (If you configured SMTP earlier, the code for sending can be added here.)
+    # No SMTP sending included here by default (optional). Return success.
     return jsonify({"success": True})
 
 # -------------- Health -------------------
