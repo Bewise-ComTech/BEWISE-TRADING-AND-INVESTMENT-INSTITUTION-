@@ -1,12 +1,9 @@
 # app.py
 import os
+import re
 import secrets
 import logging
-import smtplib
-import ssl
 import mimetypes
-import re
-from email.message import EmailMessage
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from flask import (
@@ -35,14 +32,14 @@ SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(24))
 MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 200 * 1024 * 1024))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 
-# Render/Postgres DB you gave (default)
+# Render/Postgres DB you gave
 POSTGRES_URL = (
     "postgresql://crypto_trading_ef73_user:ExqngrM4GrJX6FmefoA1g3BRPu2kF0tk@"
     "dpg-d37inupr0fns739ha5r0-a.oregon-postgres.render.com/crypto_trading_ef73"
 )
 
-# SMTP/email config (optional). Set these in Render environment to enable email sending.
-SMTP_HOST = os.environ.get("SMTP_HOST")          # e.g. "smtp.gmail.com" or "smtp.resend.com"
+# Optional SMTP config left unchanged (if you later want to send emails)
+SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
 SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASS = os.environ.get("SMTP_PASS")
@@ -57,6 +54,7 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.secret_key = SECRET_KEY
 
+# NOTE: keep supports_credentials True; if using cookies cross-origin, set explicit origin (not "*")
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 logging.basicConfig(level=logging.INFO)
@@ -126,25 +124,30 @@ def create_session(pin_id, device_id, hours=24):
     return token
 
 def validate_session(token):
+    """
+    Validate session token and return Session object if valid, otherwise None.
+    """
     if not token:
         return None
     s = Session.query.filter_by(token=token).first()
     if not s:
         return None
+    # expiration check
     if s.expires_at < now():
         try:
             db.session.delete(s); db.session.commit()
         except Exception:
             pass
         return None
+    # pin must exist
     p = Pin.query.get(s.pin_id)
-    # if pin revoked and not admin -> kill session
     if not p:
         try:
             db.session.delete(s); db.session.commit()
         except Exception:
             pass
         return None
+    # if pin revoked and not admin, kill session (security)
     if p.revoked and p.pin != ADMIN_PIN:
         try:
             db.session.delete(s); db.session.commit()
@@ -153,17 +156,41 @@ def validate_session(token):
         return None
     return s
 
+def get_request_token(req):
+    """
+    Extract token from:
+      1) Authorization: Bearer <token>
+      2) query param token=...
+      3) cookie session_token
+    """
+    auth = req.headers.get("Authorization", "")
+    if auth and auth.lower().startswith("bearer "):
+        return auth.split(None, 1)[1].strip()
+    q = req.args.get("token")
+    if q:
+        return q
+    return req.cookies.get("session_token")
+
 def admin_auth_ok(req):
-    # Header-based admin shortcut
-    header = req.headers.get("X-ADMIN-PW")
-    if header and header == ADMIN_PASSWORD:
+    """
+    Checks admin authentication:
+      - X-ADMIN-PW header (ADMIN_PASSWORD)
+      - Bearer token or cookie that corresponds to admin PIN session
+    """
+    # header-based admin shortcut
+    header_pw = req.headers.get("X-ADMIN-PW")
+    if header_pw and header_pw == ADMIN_PASSWORD:
         return True
-    token = req.cookies.get("session_token")
+
+    token = get_request_token(req)
+    if not token:
+        return False
     s = validate_session(token)
-    if s:
-        p = Pin.query.get(s.pin_id)
-        if p and p.pin == ADMIN_PIN:
-            return True
+    if not s:
+        return False
+    p = Pin.query.get(s.pin_id)
+    if p and p.pin == ADMIN_PIN:
+        return True
     return False
 
 def set_session_cookie(resp, token):
@@ -286,16 +313,14 @@ def api_login():
         p.assigned_at = now()
         db.session.add(p); db.session.commit()
         token = create_session(p.id, device_id)
-        body = {"success": True, "message": "logged_in", "role": ("admin" if p.pin == ADMIN_PIN else "user"), "token": token}
-        resp = jsonify(body)
+        resp = jsonify({"success": True, "message": "logged_in", "role": ("admin" if p.pin == ADMIN_PIN else "user"), "token": token})
         set_session_cookie(resp, token)
         return resp
 
     # if device matches -> issue session
     if p.device_id == device_id:
         token = create_session(p.id, device_id)
-        body = {"success": True, "message": "logged_in", "role": ("admin" if p.pin == ADMIN_PIN else "user"), "token": token}
-        resp = jsonify(body)
+        resp = jsonify({"success": True, "message": "logged_in", "role": ("admin" if p.pin == ADMIN_PIN else "user"), "token": token})
         set_session_cookie(resp, token)
         return resp
 
@@ -307,8 +332,7 @@ def api_login():
         p.assigned_at = now()
         db.session.add(p); db.session.commit()
         token = create_session(p.id, device_id)
-        body = {"success": True, "message": "logged_in", "role": "admin", "token": token}
-        resp = jsonify(body)
+        resp = jsonify({"success": True, "message": "logged_in", "role": "admin", "token": token})
         set_session_cookie(resp, token)
         return resp
 
@@ -319,16 +343,16 @@ def api_login():
 
 @app.route("/api/check_session")
 def api_check_session():
-    token = request.cookies.get("session_token")
+    token = request.cookies.get("session_token") or get_request_token(request)
     s = validate_session(token)
     if not s:
         return jsonify({"logged_in": False})
     p = Pin.query.get(s.pin_id)
-    return jsonify({"logged_in": True, "pin_id": s.pin_id, "device_id": s.device_id, "is_admin": (p.pin == ADMIN_PIN if p else False)})
+    return jsonify({"logged_in": True, "pin_id": s.pin_id, "device_id": s.device_id, "is_admin": (p.pin == ADMIN_PIN if p else False), "token": s.token})
 
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
-    token = request.cookies.get("session_token")
+    token = request.cookies.get("session_token") or get_request_token(request)
     if token:
         s = Session.query.get(token)
         if s:
@@ -343,11 +367,72 @@ def api_videos():
     rows = Video.query.order_by(Video.uploaded_at.desc()).all()
     return jsonify([{"id": r.id, "title": r.title, "uploaded_at": r.uploaded_at.isoformat()} for r in rows])
 
-# Range-aware streaming endpoint (supports Range header and token fallback)
+def _stream_file_range(path):
+    """
+    Serve file supporting Range requests (partial content).
+    """
+    if not os.path.exists(path):
+        return "File missing", 404
+
+    file_size = os.path.getsize(path)
+    content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    range_header = request.headers.get('Range', None)
+    if not range_header:
+        # return full file
+        def full_stream():
+            with open(path, 'rb') as f:
+                chunk = f.read(8192)
+                while chunk:
+                    yield chunk
+                    chunk = f.read(8192)
+        rv = Response(stream_with_context(full_stream()), mimetype=content_type)
+        rv.headers['Content-Length'] = str(file_size)
+        rv.headers['Accept-Ranges'] = 'bytes'
+        rv.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        return rv
+
+    # parse range header
+    m = re.search(r'bytes=(\d+)-(\d*)', range_header)
+    if not m:
+        return Response(status=416)
+    start = int(m.group(1))
+    end = m.group(2)
+    end = int(end) if end else file_size - 1
+    if start >= file_size:
+        return Response(status=416)
+    if end >= file_size:
+        end = file_size - 1
+    length = end - start + 1
+
+    def range_stream(start_pos, length_to_read):
+        with open(path, 'rb') as f:
+            f.seek(start_pos)
+            remaining = length_to_read
+            while remaining:
+                chunk_size = 8192 if remaining >= 8192 else remaining
+                data = f.read(chunk_size)
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+
+    rv = Response(stream_with_context(range_stream(start, length)), status=206, mimetype=content_type)
+    rv.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+    rv.headers['Accept-Ranges'] = 'bytes'
+    rv.headers['Content-Length'] = str(length)
+    rv.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return rv
+
 @app.route("/stream/<int:video_id>")
 def stream_video(video_id):
-    # token fallback: accept token in query param if cookie not present
-    token = request.args.get("token") or request.cookies.get("session_token")
+    """
+    Stream videos with authentication support via:
+      - query token (?token=...)
+      - Authorization: Bearer <token>
+      - cookie session_token
+    Also supports Range (partial) requests for large files.
+    """
+    token = get_request_token(request)
     s = validate_session(token)
     if not s:
         return "Unauthorized", 401
@@ -355,61 +440,8 @@ def stream_video(video_id):
     v = Video.query.get(video_id)
     if not v:
         return "Not found", 404
-
     path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
-    if not os.path.exists(path):
-        return "File missing", 404
-
-    file_size = os.path.getsize(path)
-    content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-    range_header = request.headers.get("Range", None)
-
-    if range_header:
-        # parse "bytes=start-end"
-        m = re.match(r"bytes=(\d+)-(\d*)", range_header)
-        if m:
-            start = int(m.group(1))
-            end = m.group(2)
-            end = int(end) if end else file_size - 1
-            if start >= file_size:
-                return ("Requested Range Not Satisfiable", 416)
-            if end >= file_size:
-                end = file_size - 1
-            length = end - start + 1
-
-            def generate():
-                with open(path, "rb") as f:
-                    f.seek(start)
-                    remaining = length
-                    chunk_size = 64 * 1024
-                    while remaining > 0:
-                        chunk = f.read(min(chunk_size, remaining))
-                        if not chunk:
-                            break
-                        remaining -= len(chunk)
-                        yield chunk
-
-            rv = Response(stream_with_context(generate()), status=206, mimetype=content_type)
-            rv.headers.add("Content-Range", f"bytes {start}-{end}/{file_size}")
-            rv.headers.add("Accept-Ranges", "bytes")
-            rv.headers.add("Content-Length", str(length))
-            rv.headers.add("Cache-Control", "no-cache")
-            return rv
-
-    # no range header -> stream full file
-    def full_stream():
-        with open(path, "rb") as f:
-            while True:
-                chunk = f.read(64 * 1024)
-                if not chunk:
-                    break
-                yield chunk
-
-    rv = Response(stream_with_context(full_stream()), mimetype=content_type)
-    rv.headers.add("Content-Length", str(file_size))
-    rv.headers.add("Accept-Ranges", "bytes")
-    rv.headers.add("Cache-Control", "no-cache")
-    return rv
+    return _stream_file_range(path)
 
 # -------------- API: Admin -------------
 @app.route("/api/admin/upload_video", methods=["POST"])
@@ -459,27 +491,15 @@ def api_admin_revoke_pin():
     pin_id = data.get("pin_id")
     if not pin_id:
         return jsonify({"success": False, "error": "missing_pin_id"}), 400
-
-    # support numeric id or 6-digit pin string
-    p = None
-    try:
-        p = Pin.query.get(int(pin_id))
-    except Exception:
-        p = Pin.query.filter_by(pin=str(pin_id)).first()
-
+    p = Pin.query.get(pin_id)
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
-
     # Prevent admin PIN from being revoked
     if p.pin == ADMIN_PIN:
         return jsonify({"success": False, "error": "cannot_revoke_admin_pin", "message": "Admin PIN cannot be revoked."}), 403
-
     p.revoked = True
     db.session.add(p); db.session.commit()
     return jsonify({"success": True})
-
-
-
 
 @app.route("/api/admin/delete_pin", methods=["POST"])
 def api_admin_delete_pin():
@@ -489,18 +509,10 @@ def api_admin_delete_pin():
     pin_id = data.get("pin_id")
     if not pin_id:
         return jsonify({"success": False, "error": "missing_pin_id"}), 400
-
-    # support numeric id or 6-digit pin string
-    p = None
-    try:
-        p = Pin.query.get(int(pin_id))
-    except Exception:
-        p = Pin.query.filter_by(pin=str(pin_id)).first()
-
+    p = Pin.query.get(pin_id)
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
-
-    # Prevent deleting admin pin
+    # Prevent deleting the admin PIN itself
     if p.pin == ADMIN_PIN:
         return jsonify({"success": False, "error": "cannot_delete_admin_pin", "message": "Admin PIN cannot be deleted."}), 403
     try:
@@ -519,182 +531,4 @@ def api_admin_delete_video():
     data = request.get_json() or {}
     video_id = data.get("video_id")
     if not video_id:
-        return jsonify({"success": False, "error": "missing_video_id"}), 400
-    v = Video.query.get(video_id)
-    if not v:
-        return jsonify({"success": False, "error": "video_not_found"}), 404
-    filename = v.filename
-    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    try:
-        db.session.delete(v)
-        db.session.commit()
-    except Exception as exc:
-        logger.exception("DB delete failed for video %s: %s", video_id, exc)
-        db.session.rollback()
-        return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-    except Exception as exc:
-        logger.exception("Failed to remove video file %s: %s", path, exc)
-        return jsonify({"success": True, "warning": "db_deleted_but_file_remove_failed", "message": str(exc)})
-    return jsonify({"success": True})
-
-# Admin file endpoints (upload/list/delete)
-@app.route("/api/admin/upload_file", methods=["POST"])
-def api_admin_upload_file():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    title = request.form.get("title", "").strip()
-    f = request.files.get("file")
-    if not f or not title:
-        return jsonify({"success": False, "error": "missing_title_or_file"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        f.save(path)
-        file_row = File(title=title, filename=safe_name, uploaded_at=now())
-        db.session.add(file_row)
-        db.session.commit()
-        return jsonify({"success": True, "file_id": file_row.id})
-    except Exception as exc:
-        logger.exception("upload_file failed: %s", exc)
-        db.session.rollback()
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
-
-@app.route("/api/files")
-def api_files():
-    rows = File.query.order_by(File.uploaded_at.desc()).all()
-    data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
-    return jsonify(data)
-
-@app.route("/view/file/<int:file_id>")
-def view_file(file_id):
-    frow = File.query.get(file_id)
-    if not frow:
-        return "Not found", 404
-    filename = frow.filename
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    if not os.path.exists(file_path):
-        return "File missing", 404
-    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], filename))
-    resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    return resp
-
-# -------------- API: Payment ------------
-@app.route("/api/payment/proof", methods=["POST"])
-def api_payment_proof():
-    name = request.form.get("name", "")
-    email = request.form.get("email", "")
-    course_title = request.form.get("course_title", "")
-    f = request.files.get("proof")
-    if not name or not f:
-        return jsonify({"success": False, "error": "missing_fields"}), 400
-
-    # Save to uploads folder (same place as other content)
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        f.save(path)
-    except Exception as exc:
-        logger.exception("Failed to save proof file: %s", exc)
-        return jsonify({"success": False, "error": "save_failed", "message": str(exc)}), 500
-
-    # store payment record
-    try:
-        pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
-        db.session.add(pay)
-        db.session.commit()
-    except Exception as exc:
-        logger.exception("Failed to save payment record: %s", exc)
-        # attempt to remove saved file if DB failed
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "db_failed", "message": str(exc)}), 500
-
-    # If SMTP configured, try to send email with attachment to admin
-    if SMTP_HOST and SMTP_USER and SMTP_PASS:
-        try:
-            msg = EmailMessage()
-            subject = f"Payment proof: {name} - {course_title or 'N/A'}"
-            msg["Subject"] = subject
-            msg["From"] = EMAIL_FROM or SMTP_USER
-            msg["To"] = EMAIL_TO
-
-            # If email provided by client, set Reply-To so you can reply to them easily
-            if email:
-                msg["Reply-To"] = email
-
-            body_lines = [
-                f"Name: {name}",
-                f"Email: {email or 'N/A'}",
-                f"Course: {course_title or 'N/A'}",
-                f"Filename: {safe_name}",
-                "",
-                "This message contains the uploaded payment proof attachment."
-            ]
-            msg.set_content("\n".join(body_lines))
-
-            # attach the file
-            ctype, encoding = mimetypes.guess_type(path)
-            if ctype is None:
-                ctype = "application/octet-stream"
-            maintype, subtype = ctype.split("/", 1)
-            with open(path, "rb") as fp:
-                file_data = fp.read()
-            # attach original filename
-            msg.add_attachment(file_data, maintype=maintype, subtype=subtype, filename=f.filename)
-
-            context = ssl.create_default_context()
-
-            # Support common SMTP patterns: SSL (465) or STARTTLS (587/default)
-            if SMTP_PORT == 465:
-                with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=30) as server:
-                    server.login(SMTP_USER, SMTP_PASS)
-                    server.send_message(msg)
-            else:
-                with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-                    server.ehlo()
-                    # prefer STARTTLS for 587
-                    if SMTP_PORT == 587:
-                        server.starttls(context=context)
-                        server.ehlo()
-                    server.login(SMTP_USER, SMTP_PASS)
-                    server.send_message(msg)
-
-        except Exception as exc:
-            logger.exception("Failed to send payment email: %s", exc)
-            # Keep DB and file; inform client with a warning
-            return jsonify({
-                "success": True,
-                "warning": "uploaded_but_email_failed",
-                "message": str(exc)
-            })
-
-    return jsonify({"success": True})
-
-# -------------- Health -------------------
-@app.route("/api/health")
-def health():
-    try:
-        db.session.execute("SELECT 1")
-        return jsonify({"ok": True})
-    except Exception as e:
-        logger.exception("Health check failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-# --------------- Run ---------------------
-if __name__ == "__main__":
-    debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
+        return jsonify({"success": False, "erro
