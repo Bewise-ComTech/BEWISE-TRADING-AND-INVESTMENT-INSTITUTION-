@@ -1,8 +1,8 @@
-# app.py
 import os
 import secrets
 import logging
 import mimetypes
+import shutil
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from flask import (
@@ -16,10 +16,12 @@ from jinja2 import TemplateNotFound
 # --------------- Configuration ---------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
+CHUNK_FOLDER = os.path.join(UPLOAD_FOLDER, "chunks")
 TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(CHUNK_FOLDER, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
@@ -449,11 +451,103 @@ def api_admin_upload_video():
         return jsonify({"success": False, "error": "missing_title_or_file"}), 400
     safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
     path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    f.save(path)
-    v = Video(title=title, filename=safe_name, uploaded_at=now())
-    db.session.add(v); db.session.commit()
-    return jsonify({"success": True, "video_id": v.id})
+    try:
+        f.save(path)
+        v = Video(title=title, filename=safe_name, uploaded_at=now())
+        db.session.add(v); db.session.commit()
+        return jsonify({"success": True, "video_id": v.id})
+    except Exception as exc:
+        logger.exception("upload_video failed: %s", exc)
+        # remove partial file if written
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
 
+# --- NEW: chunked upload endpoints ---
+@app.route("/api/admin/upload_video_chunk", methods=["POST"])
+def api_admin_upload_video_chunk():
+    if not admin_auth_ok(request):
+        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+
+    upload_id = request.form.get("upload_id") or request.values.get("upload_id")
+    filename = request.form.get("filename") or request.values.get("filename")
+    chunk_index = request.form.get("chunk_index")
+    total_chunks = request.form.get("total_chunks")
+    chunk_file = request.files.get("chunk")
+
+    if not upload_id or not filename or chunk_index is None or total_chunks is None or not chunk_file:
+        return jsonify({"success": False, "error": "missing_chunk_fields"}), 400
+
+    try:
+        chunk_index_i = int(chunk_index)
+        total_chunks_i = int(total_chunks)
+    except Exception:
+        return jsonify({"success": False, "error": "invalid_chunk_index_or_total"}), 400
+
+    safe_upload_dir = os.path.join(CHUNK_FOLDER, secure_filename(upload_id))
+    os.makedirs(safe_upload_dir, exist_ok=True)
+    # Save chunk with numeric index for easy ordering
+    chunk_path = os.path.join(safe_upload_dir, f"part_{chunk_index_i:06d}.chunk")
+    try:
+        chunk_file.save(chunk_path)
+        return jsonify({"success": True, "saved": True, "chunk_index": chunk_index_i, "total_chunks": total_chunks_i})
+    except Exception as exc:
+        logger.exception("Failed to save chunk %s: %s", chunk_path, exc)
+        return jsonify({"success": False, "error": "chunk_save_failed", "message": str(exc)}), 500
+
+@app.route("/api/admin/finish_video_upload", methods=["POST"])
+def api_admin_finish_video_upload():
+    if not admin_auth_ok(request):
+        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+
+    data = request.get_json() or {}
+    upload_id = data.get("upload_id")
+    filename = data.get("filename")
+    title = data.get("title", "")[:512]
+
+    if not upload_id or not filename or not title:
+        return jsonify({"success": False, "error": "missing_finish_fields"}), 400
+
+    safe_upload_dir = os.path.join(CHUNK_FOLDER, secure_filename(upload_id))
+    if not os.path.isdir(safe_upload_dir):
+        return jsonify({"success": False, "error": "upload_not_found"}), 404
+
+    # Collect chunk parts in sorted order
+    parts = sorted([p for p in os.listdir(safe_upload_dir) if p.startswith("part_")])
+    if not parts:
+        return jsonify({"success": False, "error": "no_chunks_found"}), 400
+
+    safe_name = secrets.token_hex(8) + "_" + secure_filename(filename)
+    out_path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
+    try:
+        with open(out_path, "wb") as out_f:
+            for part in parts:
+                part_path = os.path.join(safe_upload_dir, part)
+                with open(part_path, "rb") as pf:
+                    shutil.copyfileobj(pf, out_f)
+        # assembled file saved, create DB record
+        v = Video(title=title, filename=safe_name, uploaded_at=now())
+        db.session.add(v); db.session.commit()
+        # cleanup chunk dir
+        try:
+            shutil.rmtree(safe_upload_dir)
+        except Exception:
+            logger.exception("Failed to remove chunk directory %s", safe_upload_dir)
+        return jsonify({"success": True, "video_id": v.id})
+    except Exception as exc:
+        logger.exception("Failed to assemble chunks for upload_id %s: %s", upload_id, exc)
+        # try to remove partially assembled output
+        try:
+            if os.path.exists(out_path):
+                os.remove(out_path)
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": "assemble_failed", "message": str(exc)}), 500
+
+# -------------- Remaining admin endpoints -------------
 @app.route("/api/admin/generate_pin", methods=["POST"])
 def api_admin_generate_pin():
     if not admin_auth_ok(request):
@@ -493,7 +587,8 @@ def api_admin_revoke_pin():
     # If this is the protected ADMIN_PIN, require explicit confirmation (force:true) from an authenticated admin
     if p.pin == ADMIN_PIN:
         if not force:
-            return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To revoke the admin PIN, include {\"force\": true} in the request body."}), 403
+            # <-- changed to 409 (conflict / confirm required) per request
+            return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To revoke the admin PIN, include {\"force\": true} in the request body."}), 409
         # if force == True and admin_auth_ok(request) passed, allow revocation
     p.revoked = True
     db.session.add(p); db.session.commit()
@@ -515,7 +610,8 @@ def api_admin_delete_pin():
     # ADMIN_PIN is protected by default; require force:true for deletion
     if p.pin == ADMIN_PIN:
         if not force:
-            return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To delete the admin PIN, include {\"force\": true} in the request body."}), 403
+            # <-- changed to 409 (conflict / confirm required) per request
+            return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To delete the admin PIN, include {\"force\": true} in the request body."}), 409
         # proceed with deletion if force provided and admin_auth_ok() validated above
     try:
         db.session.delete(p)
@@ -652,4 +748,3 @@ def health():
 if __name__ == "__main__":
     debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
