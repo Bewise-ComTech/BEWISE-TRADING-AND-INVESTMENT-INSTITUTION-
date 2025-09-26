@@ -2,15 +2,11 @@
 import os
 import secrets
 import logging
-import smtplib
-import ssl
-import mimetypes
-from email.message import EmailMessage
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from flask import (
     Flask, request, jsonify, render_template, send_from_directory,
-    make_response, abort, Response, send_file
+    make_response, abort
 )
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -40,14 +36,6 @@ POSTGRES_URL = (
     "postgresql://crypto_trading_ef73_user:ExqngrM4GrJX6FmefoA1g3BRPu2kF0tk@"
     "dpg-d37inupr0fns739ha5r0-a.oregon-postgres.render.com/crypto_trading_ef73"
 )
-
-# SMTP/email config (optional). Set these in Render environment to enable email sending.
-SMTP_HOST = os.environ.get("SMTP_HOST")          # e.g. "smtp.gmail.com" or "smtp.resend.com"
-SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
-SMTP_USER = os.environ.get("SMTP_USER")
-SMTP_PASS = os.environ.get("SMTP_PASS")
-EMAIL_FROM = os.environ.get("EMAIL_FROM", SMTP_USER)
-EMAIL_TO = os.environ.get("EMAIL_TO", "ezehebubechidubem@gmail.com")
 
 # --------------- App setup ---------------
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
@@ -167,8 +155,11 @@ def admin_auth_ok(req):
     return False
 
 def set_session_cookie(resp, token):
-    samesite_val = "None" if COOKIE_SECURE else "Lax"
-    resp.set_cookie("session_token", token, httponly=True, samesite=samesite_val, secure=COOKIE_SECURE, path="/")
+    # Only mark cookie secure / SameSite=None when the current request is secure.
+    # This avoids cookies being dropped when running over plain HTTP (local dev).
+    samesite_val = "None" if COOKIE_SECURE and request.is_secure else "Lax"
+    secure_flag = bool(COOKIE_SECURE and request.is_secure)
+    resp.set_cookie("session_token", token, httponly=True, samesite=samesite_val, secure=secure_flag, path="/")
     return resp
 
 # -------------- Init DB & ensure admin PIN exists & non-revocable -----------------
@@ -340,84 +331,21 @@ def api_videos():
     rows = Video.query.order_by(Video.uploaded_at.desc()).all()
     return jsonify([{"id": r.id, "title": r.title, "uploaded_at": r.uploaded_at.isoformat()} for r in rows])
 
-# ========= Improved streaming endpoint with Range support =========
-# This supports 'Range' requests used by browsers for streaming / seeking large files.
 @app.route("/stream/<int:video_id>")
 def stream_video(video_id):
-    # session check (same behavior as before)
     token = request.cookies.get("session_token")
     s = validate_session(token)
     if not s:
         return "Unauthorized", 401
-
     v = Video.query.get(video_id)
     if not v:
         return "Not found", 404
-
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
-    if not os.path.exists(file_path):
+    path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
+    if not os.path.exists(path):
         return "File missing", 404
-
-    # Determine content type
-    ctype, _ = mimetypes.guess_type(file_path)
-    if not ctype:
-        ctype = "application/octet-stream"
-
-    file_size = os.path.getsize(file_path)
-    range_header = request.headers.get('Range', None)
-    if range_header:
-        # Example Range: "bytes=0-1023"
-        try:
-            parts = range_header.strip().split('=')[-1]
-            start_str, end_str = parts.split('-')
-            start = int(start_str) if start_str else 0
-            end = int(end_str) if end_str else file_size - 1
-        except Exception:
-            # Malformed Range; ignore and serve full content
-            start = None
-            end = None
-
-        if start is not None:
-            if start >= file_size:
-                # requested range not satisfiable
-                return Response(status=416, headers={
-                    'Content-Range': f'bytes */{file_size}'
-                })
-
-            if end is None or end >= file_size:
-                end = file_size - 1
-            length = end - start + 1
-
-            def generate():
-                with open(file_path, 'rb') as fh:
-                    fh.seek(start)
-                    remaining = length
-                    chunk_size = 64 * 1024
-                    while remaining > 0:
-                        read_size = chunk_size if remaining >= chunk_size else remaining
-                        data = fh.read(read_size)
-                        if not data:
-                            break
-                        remaining -= len(data)
-                        yield data
-
-            headers = {
-                'Content-Type': ctype,
-                'Content-Range': f'bytes {start}-{end}/{file_size}',
-                'Accept-Ranges': 'bytes',
-                'Content-Length': str(length),
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                # inline so player can use it
-                'Content-Disposition': f'inline; filename="{os.path.basename(file_path)}"'
-            }
-            return Response(generate(), status=206, headers=headers)
-    # No Range header; return full file
-    # Use send_file for efficient serving
-    resp = make_response(send_file(file_path, mimetype=ctype, as_attachment=False))
-    resp.headers['Accept-Ranges'] = 'bytes'
-    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    resp.headers['Content-Length'] = str(file_size)
-    resp.headers['Content-Disposition'] = f'inline; filename="{os.path.basename(file_path)}"'
+    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], v.filename))
+    resp.headers["Content-Disposition"] = f'inline; filename="{v.filename}"'
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return resp
 
 # -------------- API: Admin -------------
@@ -492,6 +420,14 @@ def api_admin_delete_pin():
     # Warning: allow deleting admin pin only if explicitly desired - here we prevent delete of admin pin
     if p.pin == ADMIN_PIN:
         return jsonify({"success": False, "error": "cannot_delete_admin_pin", "message": "Admin PIN cannot be deleted."}), 403
+
+    # Remove any sessions referencing this pin first (prevents FK constraint errors)
+    try:
+        Session.query.filter_by(pin_id=p.id).delete()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
     try:
         db.session.delete(p)
         db.session.commit()
@@ -577,7 +513,6 @@ def view_file(file_id):
     resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
 
-
 # -------------- API: Payment ------------
 @app.route("/api/payment/proof", methods=["POST"])
 def api_payment_proof():
@@ -587,89 +522,11 @@ def api_payment_proof():
     f = request.files.get("proof")
     if not name or not f:
         return jsonify({"success": False, "error": "missing_fields"}), 400
-
-    # Save to uploads folder (same place as other content)
     safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        f.save(path)
-    except Exception as exc:
-        logger.exception("Failed to save proof file: %s", exc)
-        return jsonify({"success": False, "error": "save_failed", "message": str(exc)}), 500
-
-    # store payment record
-    try:
-        pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
-        db.session.add(pay)
-        db.session.commit()
-    except Exception as exc:
-        logger.exception("Failed to save payment record: %s", exc)
-        # attempt to remove saved file if DB failed
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "db_failed", "message": str(exc)}), 500
-
-    # If SMTP configured, try to send email with attachment to admin
-    if SMTP_HOST and SMTP_USER and SMTP_PASS:
-        try:
-            msg = EmailMessage()
-            subject = f"Payment proof: {name} - {course_title or 'N/A'}"
-            msg["Subject"] = subject
-            msg["From"] = EMAIL_FROM or SMTP_USER
-            msg["To"] = EMAIL_TO
-
-            # If email provided by client, set Reply-To so you can reply to them easily
-            if email:
-                msg["Reply-To"] = email
-
-            body_lines = [
-                f"Name: {name}",
-                f"Email: {email or 'N/A'}",
-                f"Course: {course_title or 'N/A'}",
-                f"Filename: {safe_name}",
-                "",
-                "This message contains the uploaded payment proof attachment."
-            ]
-            msg.set_content("\n".join(body_lines))
-
-            # attach the file
-            ctype, encoding = mimetypes.guess_type(path)
-            if ctype is None:
-                ctype = "application/octet-stream"
-            maintype, subtype = ctype.split("/", 1)
-            with open(path, "rb") as fp:
-                file_data = fp.read()
-            msg.add_attachment(file_data, maintype=maintype, subtype=subtype, filename=f.filename)
-
-            context = ssl.create_default_context()
-
-            # Support common SMTP patterns: SSL (465) or STARTTLS (587/default)
-            if SMTP_PORT == 465:
-                with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=30) as server:
-                    server.login(SMTP_USER, SMTP_PASS)
-                    server.send_message(msg)
-            else:
-                with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
-                    server.ehlo()
-                    # prefer STARTTLS for 587
-                    if SMTP_PORT == 587:
-                        server.starttls(context=context)
-                        server.ehlo()
-                    server.login(SMTP_USER, SMTP_PASS)
-                    server.send_message(msg)
-
-        except Exception as exc:
-            logger.exception("Failed to send payment email: %s", exc)
-            # Keep DB and file; inform client with a warning
-            return jsonify({
-                "success": True,
-                "warning": "uploaded_but_email_failed",
-                "message": str(exc)
-            })
-
+    path = os.path.join(app.static_folder, safe_name)
+    f.save(path)
+    pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
+    db.session.add(pay); db.session.commit()
     return jsonify({"success": True})
 
 # -------------- Health -------------------
@@ -686,4 +543,3 @@ def health():
 if __name__ == "__main__":
     debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
