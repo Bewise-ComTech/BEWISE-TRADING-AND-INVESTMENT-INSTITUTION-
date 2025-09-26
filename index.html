@@ -19,6 +19,39 @@
   .fp { font-family:monospace; word-break:break-all; font-size:11px; background:#02121a; padding:8px; border-radius:8px; margin-top:10px; display:none; color:#9be7ff }
   .modal { display:none; position:fixed; inset:0; align-items:center; justify-content:center; background:rgba(0,0,0,0.6) }
   .modal .panel{ background:#0b1220; padding:18px; border-radius:8px; color:#cfefff }
+
+  /* --- new overlay while backend wakes --- */
+  .backend-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(0deg, rgba(2,6,23,0.85), rgba(2,6,23,0.85));
+    z-index: 9999;
+    flex-direction: column;
+    gap: 12px;
+    color: #dff8ff;
+    padding: 20px;
+    text-align: center;
+  }
+  .backend-overlay.hidden { display: none; }
+  .spinner {
+    width: 62px;
+    height: 62px;
+    border-radius: 50%;
+    border: 6px solid rgba(255,255,255,0.06);
+    border-top-color: #06b6d4;
+    animation: spin 1s linear infinite;
+    box-shadow: 0 8px 24px rgba(6,182,212,0.06), inset 0 -6px 12px rgba(0,0,0,0.15);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .backend-overlay .title { font-weight:800; font-size:1.05rem; }
+  .backend-overlay .sub { font-size:0.95rem; opacity:0.9; max-width:720px; }
+
+  /* small helper to visually show disabled state for form while waiting */
+  .waiting .card { opacity: 0.88; pointer-events: none; filter: blur(0.2px); }
+  /* end overlay styling */
 </style>
 </head>
 <body>
@@ -32,6 +65,14 @@
     <div class="fp" id="fpBox" title="Device fingerprint (for server lock)"></div>
   </div>
 
+  <!-- Backend wake overlay - shown until backend /api/health returns ok -->
+  <div id="backendOverlay" class="backend-overlay" role="status" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
+    <div class="title">Starting server — please wait</div>
+    <div class="sub">We're checking the backend. This page will become interactive automatically when your server is ready.</div>
+    <div class="sub" id="backendPollInfo" style="opacity:0.85; font-size:0.86rem; margin-top:6px;">Checking...</div>
+  </div>
+
 <script>
 (async function(){
   const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';
@@ -40,11 +81,17 @@
   const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_API;
   const UI_BASE = (location.hostname === RENDER_HOST) ? '' : RENDER_BASE;
 
+  // DOM refs
   const pinInput = document.getElementById('pin');
   const btn = document.getElementById('btn');
   const msg = document.getElementById('msg');
   const fpBox = document.getElementById('fpBox');
 
+  const backendOverlay = document.getElementById('backendOverlay');
+  const backendPollInfo = document.getElementById('backendPollInfo');
+  const rootBody = document.body;
+
+  // --- compute fingerprint (unchanged) ---
   async function computeFingerprint(){
     let uuid = localStorage.getItem('training_device_uuid');
     if(!uuid){
@@ -64,6 +111,48 @@
     return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
   }
 
+  // --- new: wait for backend health endpoint to respond OK ---
+  async function waitForBackendHealth({pollInterval=2500, timeout=null} = {}) {
+    const start = Date.now();
+    let attempts = 0;
+    backendOverlay.classList.remove('hidden');
+    rootBody.classList.add('waiting'); // visually and functionally disable the form
+    backendPollInfo.textContent = 'Checking backend status...';
+    while (true) {
+      attempts++;
+      try {
+        // call health endpoint
+        const resp = await fetch(API + '/health', { method: 'GET' });
+        if (resp.ok) {
+          try {
+            const j = await resp.json();
+            if (j && j.ok) {
+              backendPollInfo.textContent = 'Backend is ready.';
+              break;
+            }
+          } catch(e){
+            // not JSON - treat as not ready
+          }
+        }
+      } catch(e){
+        // ignore network errors - backend likely still asleep
+      }
+
+      // timeout handling (if provided)
+      if (timeout && (Date.now() - start) > timeout) {
+        backendPollInfo.textContent = 'Timeout waiting for backend.';
+        break;
+      }
+
+      backendPollInfo.textContent = `Waiting for backend to wake — attempt #${attempts}.`;
+      await new Promise(r => setTimeout(r, pollInterval));
+    }
+    // hide overlay and enable page interaction
+    backendOverlay.classList.add('hidden');
+    rootBody.classList.remove('waiting');
+  }
+
+  // --- checkSessionOnLoad (unchanged) ---
   async function checkSessionOnLoad(){
     try {
       const r = await fetch(API + '/check_session', { credentials:'include' });
@@ -72,9 +161,15 @@
     } catch(e){ return null; }
   }
 
+  // compute fingerprint and show in UI
   const fp = await computeFingerprint();
   fpBox.textContent = fp;
 
+  // Wait for backend to be ready before proceeding to normal session/login logic
+  // This keeps the page static until the backend awakes.
+  await waitForBackendHealth({ pollInterval: 2500 });
+
+  // Now proceed with the original behavior (session check / possible redirect)
   const existing = await checkSessionOnLoad();
   if(existing && existing.logged_in){
     if(existing.is_admin){ sessionStorage.setItem('training_is_admin','1'); location.replace(UI_BASE + '/admin'); }
@@ -82,6 +177,7 @@
     return;
   }
 
+  // -- existing helpers & handlers left unchanged below --
   function showMsg(t, isErr){
     msg.textContent = t;
     msg.style.color = isErr ? '#ffb4b4' : '';
@@ -132,7 +228,7 @@
 
       try { localStorage.setItem('training_allowed_device', fp); } catch(e){}
 
-      // welcome + warning popups (simple)
+      // replace alert with modal? you previously used alert — keeping alerts as requested
       alert('Welcome — login successful.');
       alert('Warning: PINs are single-device. Do not share your PIN. If used elsewhere it will be revoked.');
 
