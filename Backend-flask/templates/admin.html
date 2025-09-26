@@ -323,6 +323,7 @@
     table.appendChild(tbody);
     pinsArea.innerHTML = ''; pinsArea.appendChild(table);
 
+   
     // attach sorting handlers
     table.querySelectorAll('th.sortable').forEach(th => {
       th.onclick = ()=>{
@@ -396,4 +397,198 @@
         const si = th.querySelector('.sort-ind'); si.innerText = videosState.sortDir === -1 ? '▼' : '▲';
         renderVideos();
       };
-    })
+    });
+  }
+
+  // Load pins & videos from API
+  async function loadPins(){
+    pinsArea.innerText = 'Loading pins...';
+    try {
+      const r = await apiFetch('/admin/pins');
+      if(!r.ok){
+        const jr = await safeParseJson(r);
+        pinsArea.innerHTML = `<div class="error">Failed to load pins: ${jr && jr.error ? jr.error : 'status ' + r.status}</div>`;
+        return;
+      }
+      const j = await r.json();
+      if(!Array.isArray(j)){ pinsArea.innerHTML = '<div class="error">Failed to load pins</div>'; return; }
+      window.latestPins = j;
+      renderPins();
+    } catch(e){ pinsArea.innerHTML = '<div class="error">Error loading pins</div>'; console.error('loadPins error', e); }
+  }
+
+  async function loadVideos(){
+    videosArea.innerText = 'Loading videos...';
+    try {
+      const r = await apiFetch('/videos');
+      if(!r.ok){
+        const jr = await safeParseJson(r);
+        videosArea.innerHTML = `<div class="error">Failed to load videos: ${jr && jr.error ? jr.error : 'status ' + r.status}</div>`;
+        return;
+      }
+      const j = await r.json();
+      if(!Array.isArray(j)){ videosArea.innerHTML = '<div class="error">Failed to load videos</div>'; return; }
+      window.latestVideos = j;
+      renderVideos();
+    } catch(e){ videosArea.innerHTML = '<div class="error">Error loading videos</div>'; console.error('loadVideos error', e); }
+  }
+
+  // Generate pin
+  btnGenerate.addEventListener('click', async ()=>{
+    const note = (noteInput.value || '').slice(0,200);
+    generateResult.innerText = 'Generating...';
+    btnGenerate.disabled = true; showSpinnerOn(btnGenerate);
+    try {
+      const r = await apiFetch('/admin/generate_pin', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ note })
+      });
+      const j = await safeParseJson(r) || {};
+      if(r.ok && j.success){
+        generateResult.innerText = 'New PIN: ' + j.pin;
+        noteInput.value=''; await loadPins(); await showMessage('New PIN','New PIN: ' + j.pin);
+      } else {
+        generateResult.innerText = 'Error: ' + (j.error || j.message || ('status ' + r.status));
+        await showMessage('Error','Failed to generate PIN: ' + (j.error || j.message || ('status ' + r.status)));
+      }
+    } catch(e){ generateResult.innerText='Network error'; console.error('generate_pin error', e); await showMessage('Network','Network error'); }
+    btnGenerate.disabled = false; hideSpinnerOn(btnGenerate);
+  });
+
+  // Chunked upload helper
+  async function uploadLargeFile(file, title, onProgress = null){
+    const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min((i + 1) * CHUNK_SIZE, file.size);
+      const blob = file.slice(start, end);
+
+      const fd = new FormData();
+      fd.append('upload_id', uploadId);
+      fd.append('filename', file.name);
+      fd.append('chunk_index', i);
+      fd.append('total_chunks', totalChunks);
+      fd.append('chunk', blob, file.name);
+
+      const res = await apiFetch('/admin/upload_video_chunk', { method: 'POST', body: fd });
+      if (!res.ok) {
+        let errJson = {};
+        try { errJson = await res.json(); } catch(e){}
+        throw new Error('Chunk upload failed: ' + (errJson.error || res.status));
+      }
+      const jr = await res.json();
+      if (!jr.success) throw new Error('Chunk save failed: ' + (jr.error || JSON.stringify(jr)));
+
+      if (typeof onProgress === 'function') {
+        onProgress({ uploadedChunks: i + 1, totalChunks });
+      }
+    }
+
+    // finalize
+    const finishRes = await apiFetch('/admin/finish_video_upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ upload_id: uploadId, filename: file.name, title })
+    });
+    if (!finishRes.ok) {
+      let errJson = {};
+      try { errJson = await finishRes.json(); } catch(e){}
+      throw new Error('Finalize failed: ' + (errJson.error || finishRes.status));
+    }
+    const finishJson = await finishRes.json();
+    if (!finishJson.success) throw new Error('Finalize failed: ' + (finishJson.error || JSON.stringify(finishJson)));
+    return finishJson;
+  }
+
+  // Upload video (single-request with chunk fallback)
+  btnUpload.addEventListener('click', async ()=>{
+    const title = (videoTitle.value || '').trim(); const file = videoFile.files[0];
+    if(!title || !file){ uploadResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }
+    uploadResult.innerText='Uploading...'; btnUpload.disabled=true; showSpinnerOn(btnUpload);
+    try {
+      const SINGLE_UPLOAD_LIMIT = 100 * 1024 * 1024; // match frontend threshold to server behavior
+      if (file.size <= SINGLE_UPLOAD_LIMIT) {
+        const fd = new FormData(); fd.append('title', title); fd.append('video', file);
+        const r = await apiFetch('/admin/upload_video', { method:'POST', body: fd });
+        if (r.status === 413) {
+          // server says too large -> fallback to chunked
+          uploadResult.innerText = 'Server rejected single upload. Switching to chunked upload...';
+          const result = await uploadLargeFile(file, title, (p)=> {
+            uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
+          });
+          uploadResult.innerText = 'Uploaded ✓';
+          videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
+        } else {
+          const j = await safeParseJson(r) || {};
+          if (r.ok && j.success) {
+            uploadResult.innerText='Uploaded ✓'; videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully.');
+          } else if (j && (j.error === 'file_too_large_for_single_request' || j.error === 'file_too_large')) {
+            // server asked to chunk
+            uploadResult.innerText = 'Server asks for chunked upload. Uploading in chunks...';
+            const result = await uploadLargeFile(file, title, (p)=> {
+              uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
+            });
+            uploadResult.innerText = 'Uploaded ✓';
+            videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
+          } else {
+            uploadResult.innerText='Upload failed: ' + (j.error||j.message||'server'); await showMessage('Error','Upload failed: ' + (j.error||j.message||'server'));
+          }
+        }
+      } else {
+        // file too big — use chunked upload directly
+        uploadResult.innerText = 'Uploading in chunks...';
+        const result = await uploadLargeFile(file, title, (p)=> {
+          uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
+        });
+        uploadResult.innerText = 'Uploaded ✓';
+        videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
+      }
+    } catch(e){
+      console.error('upload_video error', e);
+      uploadResult.innerText='Upload failed: ' + (e && e.message ? e.message : '');
+      await showMessage('Upload error', (e && e.message) ? e.message : 'Network error while uploading video');
+    }
+    btnUpload.disabled=false; hideSpinnerOn(btnUpload);
+  });
+
+  // Upload any file
+  btnUploadFile.addEventListener('click', async ()=>{
+    const title = (fileTitle.value||'').trim(); const file = anyFile.files[0];
+    if(!title || !file){ uploadFileResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }
+    uploadFileResult.innerText='Uploading...'; btnUploadFile.disabled=true; showSpinnerOn(btnUploadFile);
+    try {
+      const fd = new FormData(); fd.append('title', title); fd.append('file', file);
+      const r = await apiFetch('/admin/upload_file', { method:'POST', body: fd });
+      if(r.status === 413){
+        uploadFileResult.innerText = 'File too large for server. Please reduce file size.';
+        await showMessage('File too large','The server rejected the upload because the file is too large (HTTP 413). Reduce the file size.');
+      } else {
+        const j = await safeParseJson(r) || {};
+        if(r.ok && j.success){ uploadFileResult.innerText='Uploaded ✓'; fileTitle.value=''; anyFile.value=''; await loadVideos(); await showMessage('Uploaded','File uploaded successfully.'); }
+        else { uploadFileResult.innerText='Upload failed: ' + (j.error||j.message||('status ' + r.status)); await showMessage('Error','Upload failed: ' + (j.error||j.message||('status ' + r.status))); }
+      }
+    } catch(e){ uploadFileResult.innerText='Network error'; console.error('upload_file error', e); await showMessage('Network','Network error while uploading file'); }
+    btnUploadFile.disabled=false; hideSpinnerOn(btnUploadFile);
+  });
+
+  btnRefresh.addEventListener('click', ()=>{ loadPins(); loadVideos(); });
+
+  btnLogout.addEventListener('click', async ()=>{
+    const ok = confirm('Logout admin?'); if(!ok) return;
+    try { await apiFetch('/logout', { method:'POST' }); } catch(e){ console.error('logout error', e); }
+    sessionStorage.removeItem('training_is_admin'); window.location.href = UI_BASE + '/';
+  });
+
+  // wire up search boxes (re-render live)
+  pinsSearch.addEventListener('input', ()=> renderPins());
+  videosSearch.addEventListener('input', ()=> renderVideos());
+
+  // Initial load
+  await loadPins(); await loadVideos();
+
+})();
+</script>
+</body>
+</html>
