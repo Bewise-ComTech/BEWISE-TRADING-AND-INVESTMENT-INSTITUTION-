@@ -17,159 +17,205 @@
   .small{ margin-top:8px; font-size:12px; opacity:0.85; text-align:center }
   a.link{ color:#9be7ff; text-decoration:none }
   .fp { font-family:monospace; word-break:break-all; font-size:11px; background:#02121a; padding:8px; border-radius:8px; margin-top:10px; display:none; color:#9be7ff }
-  .modal { display:none; position:fixed; inset:0; align-items:center; justify-content:center; background:rgba(0,0,0,0.6) }
-  .modal .panel{ background:#0b1220; padding:18px; border-radius:8px; color:#cfefff }
 
-  /* --- new overlay while backend wakes --- */
-  .backend-overlay {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(0deg, rgba(2,6,23,0.85), rgba(2,6,23,0.85));
-    z-index: 9999;
-    flex-direction: column;
-    gap: 12px;
-    color: #dff8ff;
-    padding: 20px;
-    text-align: center;
+  /* Invisible overlay that blocks UI while backend is down.
+     It's visually transparent (opacity:0), but when active it prevents interactions.
+     We keep it accessible-dark (aria-hidden true when hidden).
+  */
+  #invisibleOverlay {
+    display:none;          /* hidden by default */
+    position:fixed;
+    inset:0;
+    background: rgba(0,0,0,0); /* fully transparent */
+    z-index: 99999;
+    /* pointer-events toggled by JS to block interactions when shown */
   }
-  .backend-overlay.hidden { display: none; }
+
+  /* subtle inline spinner (kept visually hidden by default) */
   .spinner {
-    width: 62px;
-    height: 62px;
+    display:none;
+    position: absolute;
+    left: 50%; top: 14px;
+    transform: translateX(-50%);
+    width: 26px; height: 26px;
     border-radius: 50%;
-    border: 6px solid rgba(255,255,255,0.06);
-    border-top-color: #06b6d4;
+    border: 3px solid rgba(255,255,255,0.08);
+    border-top-color: var(--accent);
     animation: spin 1s linear infinite;
-    box-shadow: 0 8px 24px rgba(6,182,212,0.06), inset 0 -6px 12px rgba(0,0,0,0.15);
+    z-index:100000;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .backend-overlay .title { font-weight:800; font-size:1.05rem; }
-  .backend-overlay .sub { font-size:0.95rem; opacity:0.9; max-width:720px; }
+  .spinner.visible { display:block; }
 
-  /* small helper to visually show disabled state for form while waiting */
-  .waiting .card { opacity: 0.88; pointer-events: none; filter: blur(0.2px); }
-  /* end overlay styling */
+  @keyframes spin { to { transform: translateX(-50%) rotate(360deg); } }
+
+  /* message colors for inline feedback */
+  .msg.ok { color: #9ff4c6; }
+  .msg.err { color: #ffb4b4; }
+
+  /* keep page responsive */
+  @media (max-width:520px){
+    .card{ padding:16px; }
+    .logo{ width:100px; }
+  }
 </style>
 </head>
 <body>
+  <div class="spinner" id="spinner" aria-hidden="true"></div>
+
+  <!-- Invisible overlay; when backend unreachable we show it (opacity stays 0 so users don't see a message).
+       It blocks interaction until backend is reachable again. -->
+  <div id="invisibleOverlay" aria-hidden="true"></div>
+
   <div class="card" role="main" aria-labelledby="title">
     <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" alt="logo" class="logo" onerror="this.style.display='none'">
     <h1 id="title">Enter 6-digit PIN</h1>
     <input id="pin" class="pin" maxlength="6" inputmode="numeric" pattern="\d{6}" placeholder="●●●●●●" autocomplete="one-time-code" aria-label="6-digit PIN">
-    <button id="btn">Login</button>
+    <button id="btn" aria-live="polite">Login</button>
     <div class="msg" id="msg">PIN is single-device. If used elsewhere it will be revoked.</div>
     <div class="small">Don't have a PIN? <a class="link" href="/payment">Buy course / Payment</a></div>
     <div class="fp" id="fpBox" title="Device fingerprint (for server lock)"></div>
   </div>
 
-  <!-- Backend wake overlay - shown until backend /api/health returns ok -->
-  <div id="backendOverlay" class="backend-overlay" role="status" aria-live="polite">
-    <div class="spinner" aria-hidden="true"></div>
-    <div class="title">Starting server — please wait</div>
-    <div class="sub">We're checking the backend. This page will become interactive automatically when your server is ready.</div>
-    <div class="sub" id="backendPollInfo" style="opacity:0.85; font-size:0.86rem; margin-top:6px;">Checking...</div>
-  </div>
-
 <script>
 (async function(){
+  // Configuration for where backend lives (keeps your original behavior)
   const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';
   const RENDER_BASE = 'https://' + RENDER_HOST;
   const RENDER_API = RENDER_BASE + '/api';
   const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_API;
   const UI_BASE = (location.hostname === RENDER_HOST) ? '' : RENDER_BASE;
 
-  // DOM refs
+  // UI refs
   const pinInput = document.getElementById('pin');
   const btn = document.getElementById('btn');
-  const msg = document.getElementById('msg');
+  const msgEl = document.getElementById('msg');
   const fpBox = document.getElementById('fpBox');
+  const overlay = document.getElementById('invisibleOverlay');
+  const spinner = document.getElementById('spinner');
 
-  const backendOverlay = document.getElementById('backendOverlay');
-  const backendPollInfo = document.getElementById('backendPollInfo');
-  const rootBody = document.body;
-
-  // --- compute fingerprint (unchanged) ---
-  async function computeFingerprint(){
-    let uuid = localStorage.getItem('training_device_uuid');
-    if(!uuid){
-      uuid = (crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2)));
-      localStorage.setItem('training_device_uuid', uuid);
-    }
-    const parts = [
-      navigator.userAgent || '',
-      navigator.platform || '',
-      (navigator.languages || []).join(','),
-      screen.width + 'x' + screen.height + 'x' + screen.colorDepth,
-      Intl.DateTimeFormat().resolvedOptions().timeZone || '',
-      uuid
-    ].join('||');
-    const enc = new TextEncoder().encode(parts);
-    const hashBuf = await crypto.subtle.digest('SHA-256', enc);
-    return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+  // small helper to show inline messages (no alerts)
+  function showMsg(text, isErr){
+    msgEl.textContent = text;
+    msgEl.classList.toggle('err', !!isErr);
+    msgEl.classList.toggle('ok', !isErr);
   }
 
-  // --- new: wait for backend health endpoint to respond OK ---
-  async function waitForBackendHealth({pollInterval=2500, timeout=null} = {}) {
-    const start = Date.now();
-    let attempts = 0;
-    backendOverlay.classList.remove('hidden');
-    rootBody.classList.add('waiting'); // visually and functionally disable the form
-    backendPollInfo.textContent = 'Checking backend status...';
-    while (true) {
-      attempts++;
+  // Fingerprint calculation (same as before)
+  async function computeFingerprint(){
+    try {
+      let uuid = localStorage.getItem('training_device_uuid');
+      if(!uuid){
+        uuid = crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2));
+        localStorage.setItem('training_device_uuid', uuid);
+      }
+      const parts = [
+        navigator.userAgent || '',
+        navigator.platform || '',
+        (navigator.languages || []).join(','),
+        screen.width + 'x' + screen.height + 'x' + screen.colorDepth,
+        Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+        uuid
+      ].join('||');
+      const enc = new TextEncoder().encode(parts);
+      const hashBuf = await crypto.subtle.digest('SHA-256', enc);
+      return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    } catch(e){
+      return localStorage.getItem('training_device_uuid') || 'local-fallback';
+    }
+  }
+
+  // Abortable fetch utility with timeout
+  async function fetchWithTimeout(url, opts={}, timeoutMs=7000){
+    const controller = new AbortController();
+    const id = setTimeout(()=> controller.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, { ...opts, signal: controller.signal });
+      clearTimeout(id);
+      return r;
+    } finally {
+      clearTimeout(id);
+    }
+  }
+
+  // show/hide invisible overlay that blocks UI (keeps it visually transparent)
+  function setBlockingOverlay(on){
+    if(on){
+      overlay.style.display = 'block';
+      overlay.style.pointerEvents = 'auto';
+      overlay.setAttribute('aria-hidden','false');
+      // option: start small spinner to indicate background activity (kept unobtrusive)
+      spinner.classList.add('visible');
+      spinner.setAttribute('aria-hidden','true'); // not verbose
+    } else {
+      overlay.style.display = 'none';
+      overlay.style.pointerEvents = 'none';
+      overlay.setAttribute('aria-hidden','true');
+      spinner.classList.remove('visible');
+    }
+  }
+
+  // Poll backend until it responds successfully (used when backend unreachable).
+  // Returns when /api/check_session responds (could be logged_in true/false).
+  function startBackendPoll(intervalMs = 4000){
+    // If already polling, ignore
+    if(window.__backendPolling) return;
+    window.__backendPolling = true;
+    setBlockingOverlay(true);
+    const poll = async ()=>{
       try {
-        // call health endpoint
-        const resp = await fetch(API + '/health', { method: 'GET' });
-        if (resp.ok) {
+        const r = await fetchWithTimeout(API + '/check_session', { credentials: 'include' }, 6000);
+        if(!r) return;
+        if(r.ok){
+          // backend responded; stop polling
+          window.__backendPolling = false;
+          setBlockingOverlay(false);
+          // check session result and redirect if already logged_in
           try {
-            const j = await resp.json();
-            if (j && j.ok) {
-              backendPollInfo.textContent = 'Backend is ready.';
-              break;
+            const j = await r.json();
+            if(j && j.logged_in){
+              // behave like original logic: redirect to admin or dashboard
+              const redirectTo = j.is_admin ? (UI_BASE + '/admin') : (UI_BASE + '/dashboard');
+              location.href = redirectTo;
+              return;
             }
+            // otherwise keep page visible (user can log in)
           } catch(e){
-            // not JSON - treat as not ready
+            // continue silently
           }
+          return;
         }
       } catch(e){
-        // ignore network errors - backend likely still asleep
+        // still down; ignore and wait
       }
-
-      // timeout handling (if provided)
-      if (timeout && (Date.now() - start) > timeout) {
-        backendPollInfo.textContent = 'Timeout waiting for backend.';
-        break;
-      }
-
-      backendPollInfo.textContent = `Waiting for backend to wake — attempt #${attempts}.`;
-      await new Promise(r => setTimeout(r, pollInterval));
-    }
-    // hide overlay and enable page interaction
-    backendOverlay.classList.add('hidden');
-    rootBody.classList.remove('waiting');
+      // schedule next poll if still polling
+      if(window.__backendPolling) setTimeout(poll, intervalMs);
+    };
+    // start first poll immediately
+    setTimeout(poll, 200);
   }
 
-  // --- checkSessionOnLoad (unchanged) ---
+  // checkSessionOnLoad: try once quickly; if network fails, start poll quietly (no alert)
   async function checkSessionOnLoad(){
     try {
-      const r = await fetch(API + '/check_session', { credentials:'include' });
-      if(!r.ok) return null;
+      const r = await fetchWithTimeout(API + '/check_session', { credentials:'include' }, 5000);
+      if(!r.ok){
+        // If 5xx or other server response, we do not immediately poll; show overlay only for network errors.
+        // But if server responded non-OK, we allow page to continue so user can login.
+        return null;
+      }
       return await r.json();
-    } catch(e){ return null; }
+    } catch(e){
+      // likely network error / backend sleeping -> start polling and block UI invisibly
+      startBackendPoll();
+      return null;
+    }
   }
 
-  // compute fingerprint and show in UI
+  // compute fingerprint and display it (kept but hidden by default)
   const fp = await computeFingerprint();
   fpBox.textContent = fp;
 
-  // Wait for backend to be ready before proceeding to normal session/login logic
-  // This keeps the page static until the backend awakes.
-  await waitForBackendHealth({ pollInterval: 2500 });
-
-  // Now proceed with the original behavior (session check / possible redirect)
+  // on load check session
   const existing = await checkSessionOnLoad();
   if(existing && existing.logged_in){
     if(existing.is_admin){ sessionStorage.setItem('training_is_admin','1'); location.replace(UI_BASE + '/admin'); }
@@ -177,17 +223,15 @@
     return;
   }
 
-  // -- existing helpers & handlers left unchanged below --
-  function showMsg(t, isErr){
-    msg.textContent = t;
-    msg.style.color = isErr ? '#ffb4b4' : '';
-  }
-
+  // helper: validate pin format
   function validPin(v){ return /^\d{6}$/.test(v); }
 
+  // Attach UI event listeners (Enter key + button)
   btn.addEventListener('click', login);
   pinInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') login(); });
 
+  // login function (keeps your original logic, but uses inline messages instead of alerts;
+  // if network error occurs we enable invisible overlay and start polling.)
   async function login(){
     const pin = (pinInput.value || '').trim();
     if(!validPin(pin)){ showMsg('Enter a valid 6-digit PIN', true); return; }
@@ -195,12 +239,21 @@
     btn.disabled = true;
     try {
       const payload = { pin: pin, device_id: fp };
-      const res = await fetch(API + '/login', {
+      const res = await fetchWithTimeout(API + '/login', {
         method: 'POST',
         headers: { 'Content-Type':'application/json' },
         body: JSON.stringify(payload),
         credentials: 'include'
-      });
+      }, 9000);
+
+      if(!res){
+        // timeout or network error
+        showMsg('Network error — waiting for backend...', true);
+        // start invisible poll and block UI quietly
+        startBackendPoll();
+        return;
+      }
+
       const txt = await res.text();
       let json = null;
       try { json = JSON.parse(txt); } catch(e){ json = { success:false, error:'invalid_response', raw:txt }; }
@@ -222,25 +275,33 @@
         return;
       }
 
+      // success: set local state and redirect
       const role = json.role || (pin === '811335' ? 'admin' : 'user');
       if(role === 'admin'){ sessionStorage.setItem('training_is_admin','1'); }
       else sessionStorage.removeItem('training_is_admin');
-
       try { localStorage.setItem('training_allowed_device', fp); } catch(e){}
 
-      // replace alert with modal? you previously used alert — keeping alerts as requested
-      alert('Welcome — login successful.');
-      alert('Warning: PINs are single-device. Do not share your PIN. If used elsewhere it will be revoked.');
+      // show inline success message briefly then redirect
+      showMsg('Welcome — login successful.', false);
+      // small delay so user sees success
+      setTimeout(()=>{
+        if(role === 'admin') location.href = UI_BASE + '/admin';
+        else location.href = UI_BASE + '/dashboard';
+      }, 600);
 
-      if(role === 'admin') location.href = UI_BASE + '/admin';
-      else location.href = UI_BASE + '/dashboard';
     } catch(err){
       console.error(err);
-      showMsg('Network error — try again', true);
+      // network or unexpected error: start invisible poll and block UI quietly
+      showMsg('Network error — waiting for backend...', true);
+      startBackendPoll();
     } finally {
       btn.disabled = false;
     }
   }
+
+  // Prevent overlay from being accidentally left enabled on navigation away
+  window.addEventListener('beforeunload', ()=> setBlockingOverlay(false));
+
 })();
 </script>
 </body>
