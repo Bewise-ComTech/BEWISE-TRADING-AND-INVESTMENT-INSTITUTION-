@@ -499,6 +499,7 @@ def api_admin_revoke_pin():
     db.session.add(p); db.session.commit()
     return jsonify({"success": True})
 
+
 @app.route("/api/admin/delete_pin", methods=["POST"])
 def api_admin_delete_pin():
     if not admin_auth_ok(request):
@@ -513,4 +514,142 @@ def api_admin_delete_pin():
         return jsonify({"success": False, "error": "pin_not_found"}), 404
     # ADMIN_PIN is protected by default; require force:true for deletion
     if p.pin == ADMIN_PIN:
-        if n
+        if not force:
+            return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To delete the admin PIN, include {\"force\": true} in the request body."}), 403
+        # proceed with deletion if force provided and admin_auth_ok() validated above
+    try:
+        db.session.delete(p)
+        db.session.commit()
+        return jsonify({"success": True})
+    except Exception as exc:
+        logger.exception("Failed to delete pin %s: %s", pin_id, exc)
+        db.session.rollback()
+        return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
+
+@app.route("/api/admin/delete_video", methods=["POST"])
+def api_admin_delete_video():
+    if not admin_auth_ok(request):
+        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+    data = request.get_json() or {}
+    video_id = data.get("video_id")
+    if not video_id:
+        return jsonify({"success": False, "error": "missing_video_id"}), 400
+    v = Video.query.get(video_id)
+    if not v:
+        return jsonify({"success": False, "error": "video_not_found"}), 404
+    filename = v.filename
+    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    try:
+        db.session.delete(v)
+        db.session.commit()
+    except Exception as exc:
+        logger.exception("DB delete failed for video %s: %s", video_id, exc)
+        db.session.rollback()
+        return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception as exc:
+        logger.exception("Failed to remove video file %s: %s", path, exc)
+        return jsonify({"success": True, "warning": "db_deleted_but_file_remove_failed", "message": str(exc)})
+    return jsonify({"success": True})
+
+# Admin file endpoints (upload/list/delete)
+@app.route("/api/admin/upload_file", methods=["POST"])
+def api_admin_upload_file():
+    if not admin_auth_ok(request):
+        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+    title = request.form.get("title", "").strip()
+    f = request.files.get("file")
+    if not f or not title:
+        return jsonify({"success": False, "error": "missing_title_or_file"}), 400
+    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
+    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
+    try:
+        f.save(path)
+        file_row = File(title=title, filename=safe_name, uploaded_at=now())
+        db.session.add(file_row)
+        db.session.commit()
+        return jsonify({"success": True, "file_id": file_row.id})
+    except Exception as exc:
+        logger.exception("upload_file failed: %s", exc)
+        db.session.rollback()
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
+
+@app.route("/api/files")
+def api_files():
+    rows = File.query.order_by(File.uploaded_at.desc()).all()
+    data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
+    return jsonify(data)
+
+@app.route("/view/file/<int:file_id>")
+def view_file(file_id):
+    frow = File.query.get(file_id)
+    if not frow:
+        return "Not found", 404
+    filename = frow.filename
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    if not os.path.exists(file_path):
+        return "File missing", 404
+    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], filename))
+    resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return resp
+
+# -------------- API: Payment (keep record but do not attempt SMTP sending) ------------
+@app.route("/api/payment/proof", methods=["POST"])
+def api_payment_proof():
+    name = request.form.get("name", "")
+    email = request.form.get("email", "")
+    course_title = request.form.get("course_title", "")
+    f = request.files.get("proof")
+    if not name or not f:
+        return jsonify({"success": False, "error": "missing_fields"}), 400
+
+    # Save to uploads folder (same place as other content)
+    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
+    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
+    try:
+        f.save(path)
+    except Exception as exc:
+        logger.exception("Failed to save proof file: %s", exc)
+        return jsonify({"success": False, "error": "save_failed", "message": str(exc)}), 500
+
+    # store payment record
+    try:
+        pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
+        db.session.add(pay)
+        db.session.commit()
+    except Exception as exc:
+        logger.exception("Failed to save payment record: %s", exc)
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": "db_failed", "message": str(exc)}), 500
+
+    # For now, do not attempt SMTP sending. Admin can view uploads via /view/file/<id> or from DB.
+    return jsonify({"success": True})
+
+# -------------- Health -------------------
+@app.route("/api/health")
+def health():
+    try:
+        db.session.execute("SELECT 1")
+        return jsonify({"ok": True})
+    except Exception as e:
+        logger.exception("Health check failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+# --------------- Run ---------------------
+if __name__ == "__main__":
+    debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
