@@ -157,6 +157,7 @@
     try { return await resp.json(); } catch(e){ return null; }
   }
 
+  // API fetch: only auto-redirect on 401. For 403/409 let callers handle business rules.
   async function apiFetch(path, opts = {}){
     const url = API + path;
     const finalOpts = Object.assign({ credentials: 'include' }, opts);
@@ -190,22 +191,25 @@
     return;
   }
 
-  // state
+  // GLOBAL state for pins & videos (for sorting and searching)
   window.latestPins = [];
   window.latestVideos = [];
-  const pinsState = { sortKey: 'created_at', sortDir: -1 };
+  const pinsState = { sortKey: 'created_at', sortDir: -1 }; // -1 desc, 1 asc
   const videosState = { sortKey: 'uploaded_at', sortDir: -1 };
 
+  // Render helpers (pins)
   function renderPins(){
     const q = (pinsSearch.value||'').toLowerCase().trim();
     let rows = window.latestPins.slice();
     if(q){
       rows = rows.filter(p => (p.pin||'').toLowerCase().includes(q) || (p.note||'').toLowerCase().includes(q) || (p.device_id||'').toLowerCase().includes(q) || (p.ip||'').toLowerCase().includes(q));
     }
+    // sort
     rows.sort((a,b) => {
       const k = pinsState.sortKey;
       let va = a[k] || '';
       let vb = b[k] || '';
+      // parse dates for date keys
       if(k === 'created_at' || k === 'assigned_at'){
         va = a[k] ? Date.parse(a[k]) : 0;
         vb = b[k] ? Date.parse(b[k]) : 0;
@@ -216,6 +220,7 @@
     });
 
     pinsCount.innerText = `Showing ${rows.length} / ${window.latestPins.length}`;
+    // build table
     const table = document.createElement('table');
     table.innerHTML = `<thead>
       <tr>
@@ -235,24 +240,28 @@
       tr.innerHTML = `<td>${p.id}</td><td>${p.pin}</td><td>${p.note||''}</td><td style="max-width:180px;word-break:break-word">${p.device_id||''}</td><td>${p.ip||''}</td><td>${p.revoked? 'YES':''}</td>`;
       const td = document.createElement('td');
 
+      // Revoke button (only shown when not revoked)
       if(!p.revoked){
         const btn = document.createElement('button');
         btn.className = 'btn-small'; btn.innerText = 'Revoke';
         btn.addEventListener('click', async ()=>{
           const ok = confirm('Revoke PIN ' + p.pin + ' ?');
           if(!ok) return;
-          btn.disabled = true; showSpinnerOn(btn);
+          btn.disabled = true;
           try {
+            // initial attempt
             const rr = await apiFetch('/admin/revoke_pin', {
               method:'POST',
               headers: {'Content-Type':'application/json'},
               body: JSON.stringify({ pin_id: p.id })
             });
+            // if business rule confirmation required -> 409 + JSON error
             if(rr.status === 409){
               const jr = await safeParseJson(rr);
               if(jr && jr.error === 'confirm_admin_action_required'){
                 const confirmForce = confirm('This is the protected admin PIN. To revoke it you must confirm this action. Confirm revoke?');
                 if(confirmForce){
+                  // resend with force:true
                   const rr2 = await apiFetch('/admin/revoke_pin', {
                     method:'POST',
                     headers: {'Content-Type':'application/json'},
@@ -264,77 +273,85 @@
                 } else {
                   await showMessage('Cancelled','Revoke cancelled.');
                 }
-                btn.disabled = false; hideSpinnerOn(btn); return;
+                btn.disabled = false;
+                return;
               }
             }
+            // generic handling
             const jr = await safeParseJson(rr) || {};
-            if(rr.ok && jr.success){ await showMessage('Info','PIN revoked'); await loadPins(); }
-            else { await showMessage('Error','Failed to revoke: ' + (jr.error || jr.message || ('status ' + rr.status))); }
-          } catch(err){ console.error(err); await showMessage('Network', 'Network error while revoking'); }
-          btn.disabled = false; hideSpinnerOn(btn);
+            if(rr.ok && jr.success){
+              await showMessage('Info','PIN revoked');
+              loadPins();
+            } else {
+              await showMessage('Error','Failed to revoke: ' + (jr.error || jr.message || ('status ' + rr.status)));
+            }
+          } catch(err){
+            console.error(err);
+            await showMessage('Network', 'Network error while revoking');
+          }
+          btn.disabled = false;
         });
         td.appendChild(btn);
       } else {
         const span = document.createElement('span'); span.innerText = '-'; td.appendChild(span);
       }
 
+      // Delete button (works with admin confirm flow)
       const del = document.createElement('button'); del.className='btn-small btn-muted'; del.style.marginLeft='8px'; del.innerText='Delete';
       del.addEventListener('click', async ()=>{
         const ok = confirm('Delete PIN record?');
         if(!ok) return;
-        del.disabled = true; showSpinnerOn(del);
+        del.disabled = true;
         try {
           const rr = await apiFetch('/admin/delete_pin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pin_id: p.id })});
-          // If admin pin protected, server returns admin_pin_protected
+          // If backend requires confirmation for admin pin, it will return 409 + JSON { error: 'confirm_admin_action_required' }
           if(rr.status === 409){
-            const jr = await safeParseJson(rr) || {};
-            if(jr.error === 'admin_pin_protected'){
-              await showMessage('Protected','Admin PIN cannot be deleted.');
-              del.disabled = false; hideSpinnerOn(del); return;
-            }
+            const jr = await safeParseJson(rr);
             if(jr && jr.error === 'confirm_admin_action_required'){
-              const confirmForce = confirm('This PIN requires confirmation to delete. Delete anyway?');
+              const confirmForce = confirm('This is the protected admin PIN. To delete it confirm this action. Delete anyway?');
               if(confirmForce){
                 const rr2 = await apiFetch('/admin/delete_pin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pin_id: p.id, force: true })});
                 const jr2 = await safeParseJson(rr2) || {};
-                if(rr2.ok && jr2.success){ await showMessage('Info','Deleted'); await loadPins(); }
+                if(rr2.ok && jr2.success){ await showMessage('Info','Deleted'); loadPins(); }
                 else { await showMessage('Error','Failed to delete: ' + (jr2.error || jr2.message || ('status ' + rr2.status))); }
               } else {
                 await showMessage('Cancelled','Delete cancelled.');
               }
-              del.disabled = false; hideSpinnerOn(del); return;
+              del.disabled = false;
+              return;
             }
           }
+
+          // otherwise parse json and handle
           const jr = await safeParseJson(rr) || {};
-          if(rr.ok && jr.success){ await showMessage('Info','Deleted'); await loadPins(); }
-          else { await showMessage('Error','Failed to delete: ' + (jr.error || jr.message || ('status ' + rr.status))); }
-        } catch(err){ console.error(err); await showMessage('Network','Network error while deleting PIN'); }
-        del.disabled = false; hideSpinnerOn(del);
+          if(rr.ok && jr.success){
+            await showMessage('Info','Deleted');
+            loadPins();
+          } else {
+            await showMessage('Error','Failed to delete: ' + (jr.error || jr.message || ('status ' + rr.status)));
+          }
+        } catch(err){
+          console.error(err);
+          await showMessage('Network','Network error while deleting PIN');
+        }
+        del.disabled = false;
       });
       td.appendChild(del);
 
       tr.appendChild(td);
       tbody.appendChild(tr);
     });
-
     table.appendChild(tbody);
-    pinsArea.innerHTML = ''; pinsArea.appendChild(table);
-
-    // sorting
-    table.querySelectorAll('th.sortable').forEach(th => {
-      th.onclick = ()=>{
-        const key = th.getAttribute('data-key');
-        if(pinsState.sortKey === key) pinsState.sortDir = -pinsState.sortDir; else { pinsState.sortKey = key; pinsState.sortDir = -1; }
-        table.querySelectorAll('th.sortable .sort-ind').forEach(si => si.innerText = '');
-        const si = th.querySelector('.sort-ind'); si.innerText = pinsState.sortDir === -1 ? '▼' : '▲';
-        renderPins();
-      };
-    });
+    pinsArea.innerHTML = '';
+    pinsArea.appendChild(table);
   }
 
+  // Render videos
   function renderVideos(){
+    videosCount.innerText = `Showing ${window.latestVideos.length} / ${window.latestVideos.length}`;
+    const j = window.latestVideos.slice();
     const q = (videosSearch.value||'').toLowerCase().trim();
-    let rows = window.latestVideos.slice();
+    let rows = j;
     if(q){
       rows = rows.filter(v => (v.title||'').toLowerCase().includes(q));
     }
@@ -350,50 +367,39 @@
 
     videosCount.innerText = `Showing ${rows.length} / ${window.latestVideos.length}`;
     const table = document.createElement('table');
-    table.innerHTML = `<thead><tr>
-      <th class="sortable" data-key="id">ID <span class="sort-ind"></span></th>
-      <th class="sortable" data-key="title">Title <span class="sort-ind"></span></th>
-      <th class="sortable" data-key="uploaded_at">Uploaded <span class="sort-ind"></span></th>
-      <th>Action</th>
-    </tr></thead>`;
+    table.innerHTML = '<thead><tr><th class="sortable" data-key="id">ID <span class="sort-ind"></span></th><th class="sortable" data-key="title">Title <span class="sort-ind"></span></th><th class="sortable" data-key="uploaded_at">Uploaded <span class="sort-ind"></span></th><th>Action</th></tr></thead>';
     const tbody = document.createElement('tbody');
-
     rows.forEach(v => {
       const tr = document.createElement('tr');
       tr.innerHTML = `<td>${v.id}</td><td>${v.title}</td><td>${v.uploaded_at||''}</td>`;
       const td = document.createElement('td');
 
-      const play = document.createElement('button'); play.className='btn-small'; play.innerText='Play';
-      play.addEventListener('click', ()=>{
-        // open stream endpoint in new tab/window so cookies authenticate
-        const streamUrl = (location.hostname === '${RENDER_HOST}' ? '' : '${RENDER_BASE}') + '/stream/' + v.id;
-        // If UI_BASE is non-empty, we should use it; but building dynamically in JS:
-        const UI_BASE = (location.hostname === '${RENDER_HOST}') ? '' : '${RENDER_BASE}';
-        window.open(UI_BASE + '/stream/' + v.id, '_blank');
-      });
-      td.appendChild(play);
+      // NOTE: Play button intentionally removed from admin page per your request.
+      // Keep only Delete button for videos.
 
       const del = document.createElement('button'); del.className='btn-small btn-muted'; del.style.marginLeft='8px'; del.innerText='Delete';
       del.addEventListener('click', async ()=>{
         const ok = confirm('Delete video "' + v.title + '" ?');
         if(!ok) return;
-        del.disabled = true; showSpinnerOn(del);
+        del.disabled = true;
         try {
           const rr = await apiFetch('/admin/delete_video', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ video_id: v.id })});
           const jr = await safeParseJson(rr) || {};
           if(rr.ok && jr.success){ await showMessage('Info','Deleted'); await loadVideos(); }
           else { await showMessage('Error','Failed to delete: ' + (jr.error || jr.message || ('status ' + rr.status))); }
-        } catch(err){ console.error(err); await showMessage('Network','Network error while deleting video'); }
-        del.disabled = false; hideSpinnerOn(del);
+        } catch(err){
+          console.error(err);
+          await showMessage('Network','Network error while deleting video');
+        }
+        del.disabled = false;
       });
       td.appendChild(del);
-
       tr.appendChild(td);
       tbody.appendChild(tr);
     });
-
     table.appendChild(tbody);
-    videosArea.innerHTML = ''; videosArea.appendChild(table);
+    videosArea.innerHTML = '';
+    videosArea.appendChild(table);
 
     table.querySelectorAll('th.sortable').forEach(th => {
       th.onclick = ()=>{
@@ -406,185 +412,4 @@
     });
   }
 
-  async function loadPins(){
-    pinsArea.innerText = 'Loading pins...';
-    try {
-      const r = await apiFetch('/admin/pins');
-      if(!r.ok){
-        const jr = await safeParseJson(r);
-        pinsArea.innerHTML = `<div class="error">Failed to load pins: ${jr && jr.error ? jr.error : 'status ' + r.status}</div>`;
-        return;
-      }
-      const j = await r.json();
-      if(!Array.isArray(j)){ pinsArea.innerHTML = '<div class="error">Failed to load pins</div>'; return; }
-      window.latestPins = j;
-      renderPins();
-    } catch(e){ pinsArea.innerHTML = '<div class="error">Error loading pins</div>'; console.error('loadPins error', e); }
-  }
-
-  async function loadVideos(){
-    videosArea.innerText = 'Loading videos...';
-    try {
-      const r = await apiFetch('/videos');
-      if(!r.ok){
-        const jr = await safeParseJson(r);
-        videosArea.innerHTML = `<div class="error">Failed to load videos: ${jr && jr.error ? jr.error : 'status ' + r.status}</div>`;
-        return;
-      }
-      const j = await r.json();
-      if(!Array.isArray(j)){ videosArea.innerHTML = '<div class="error">Failed to load videos</div>'; return; }
-      window.latestVideos = j;
-      renderVideos();
-    } catch(e){ videosArea.innerHTML = '<div class="error">Error loading videos</div>'; console.error('loadVideos error', e); }
-  }
-
-  btnGenerate.addEventListener('click', async ()=>{
-    const note = (noteInput.value || '').slice(0,200);
-    generateResult.innerText = 'Generating...';
-    btnGenerate.disabled = true; showSpinnerOn(btnGenerate);
-    try {
-      const r = await apiFetch('/admin/generate_pin', {
-        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ note })
-      });
-      const j = await safeParseJson(r) || {};
-      if(r.ok && j.success){
-        generateResult.innerText = 'New PIN: ' + j.pin;
-        noteInput.value=''; await loadPins(); await showMessage('New PIN','New PIN: ' + j.pin);
-      } else {
-        generateResult.innerText = 'Error: ' + (j.error || j.message || ('status ' + r.status));
-        await showMessage('Error','Failed to generate PIN: ' + (j.error || j.message || ('status ' + r.status)));
-      }
-    } catch(e){ generateResult.innerText='Network error'; console.error('generate_pin error', e); await showMessage('Network','Network error'); }
-    btnGenerate.disabled = false; hideSpinnerOn(btnGenerate);
-  });
-
-  // chunked upload helper (unchanged behavior)
-  async function uploadLargeFile(file, title, onProgress = null){
-    const CHUNK_SIZE = 8 * 1024 * 1024;
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-    const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
-
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_SIZE;
-      const end = Math.min((i + 1) * CHUNK_SIZE, file.size);
-      const blob = file.slice(start, end);
-
-      const fd = new FormData();
-      fd.append('upload_id', uploadId);
-      fd.append('filename', file.name);
-      fd.append('chunk_index', i);
-      fd.append('total_chunks', totalChunks);
-      fd.append('chunk', blob, file.name);
-
-      const res = await apiFetch('/admin/upload_video_chunk', { method: 'POST', body: fd });
-      if (!res.ok) {
-        let errJson = {};
-        try { errJson = await res.json(); } catch(e){}
-        throw new Error('Chunk upload failed: ' + (errJson.error || res.status));
-      }
-      const jr = await res.json();
-      if (!jr.success) throw new Error('Chunk save failed: ' + (jr.error || JSON.stringify(jr)));
-
-      if (typeof onProgress === 'function') {
-        onProgress({ uploadedChunks: i + 1, totalChunks });
-      }
-    }
-
-    const finishRes = await apiFetch('/admin/finish_video_upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ upload_id: uploadId, filename: file.name, title })
-    });
-    if (!finishRes.ok) {
-      let errJson = {};
-      try { errJson = await finishRes.json(); } catch(e){}
-      throw new Error('Finalize failed: ' + (errJson.error || finishRes.status));
-    }
-    const finishJson = await finishRes.json();
-    if (!finishJson.success) throw new Error('Finalize failed: ' + (finishJson.error || JSON.stringify(finishJson)));
-    return finishJson;
-  }
-
-  btnUpload.addEventListener('click', async ()=>{
-    const title = (videoTitle.value || '').trim(); const file = videoFile.files[0];
-    if(!title || !file){ uploadResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }
-    uploadResult.innerText='Uploading...'; btnUpload.disabled=true; showSpinnerOn(btnUpload);
-    try {
-      const SINGLE_UPLOAD_LIMIT = 100 * 1024 * 1024;
-      if (file.size <= SINGLE_UPLOAD_LIMIT) {
-        const fd = new FormData(); fd.append('title', title); fd.append('video', file);
-        const r = await apiFetch('/admin/upload_video', { method:'POST', body: fd });
-        if (r.status === 413) {
-          uploadResult.innerText = 'Server rejected single upload. Switching to chunked upload...';
-          const result = await uploadLargeFile(file, title, (p)=> {
-            uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
-          });
-          uploadResult.innerText = 'Uploaded ✓';
-          videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
-        } else {
-          const j = await safeParseJson(r) || {};
-          if (r.ok && j.success) {
-            uploadResult.innerText='Uploaded ✓'; videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully.');
-          } else if (j && (j.error === 'file_too_large_for_single_request' || j.error === 'file_too_large')) {
-            uploadResult.innerText = 'Server asks for chunked upload. Uploading in chunks...';
-            const result = await uploadLargeFile(file, title, (p)=> {
-              uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
-            });
-            uploadResult.innerText = 'Uploaded ✓';
-            videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
-          } else {
-            uploadResult.innerText='Upload failed: ' + (j.error||j.message||'server'); await showMessage('Error','Upload failed: ' + (j.error||j.message||'server'));
-          }
-        }
-      } else {
-        uploadResult.innerText = 'Uploading in chunks...';
-        const result = await uploadLargeFile(file, title, (p)=> {
-          uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
-        });
-        uploadResult.innerText = 'Uploaded ✓';
-        videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
-      }
-    } catch(e){
-      console.error('upload_video error', e);
-      uploadResult.innerText='Upload failed: ' + (e && e.message ? e.message : '');
-      await showMessage('Upload error', (e && e.message) ? e.message : 'Network error while uploading video');
-    }
-    btnUpload.disabled=false; hideSpinnerOn(btnUpload);
-  });
-
-  btnUploadFile.addEventListener('click', async ()=>{
-    const title = (fileTitle.value||'').trim(); const file = anyFile.files[0];
-    if(!title || !file){ uploadFileResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }
-    uploadFileResult.innerText='Uploading...'; btnUploadFile.disabled=true; showSpinnerOn(btnUploadFile);
-    try {
-      const fd = new FormData(); fd.append('title', title); fd.append('file', file);
-      const r = await apiFetch('/admin/upload_file', { method:'POST', body: fd });
-      if(r.status === 413){
-        uploadFileResult.innerText = 'File too large for server. Please reduce file size.';
-        await showMessage('File too large','The server rejected the upload because the file is too large (HTTP 413). Reduce the file size.');
-      } else {
-        const j = await safeParseJson(r) || {};
-        if(r.ok && j.success){ uploadFileResult.innerText='Uploaded ✓'; fileTitle.value=''; anyFile.value=''; await loadVideos(); await showMessage('Uploaded','File uploaded successfully.'); }
-        else { uploadFileResult.innerText='Upload failed: ' + (j.error||j.message||('status ' + r.status)); await showMessage('Error','Upload failed: ' + (j.error||j.message||('status ' + r.status))); }
-      }
-    } catch(e){ uploadFileResult.innerText='Network error'; console.error('upload_file error', e); await showMessage('Network','Network error while uploading file'); }
-    btnUploadFile.disabled=false; hideSpinnerOn(btnUploadFile);
-  });
-
-  btnRefresh.addEventListener('click', ()=>{ loadPins(); loadVideos(); });
-
-  btnLogout.addEventListener('click', async ()=>{
-    const ok = confirm('Logout admin?'); if(!ok) return;
-    try { await apiFetch('/logout', { method:'POST' }); } catch(e){ console.error('logout error', e); }
-    sessionStorage.removeItem('training_is_admin'); window.location.href = UI_BASE + '/';
-  });
-
-  pinsSearch.addEventListener('input', ()=> renderPins());
-  videosSearch.addEventListener('input', ()=> renderVideos());
-
-  await loadPins(); await loadVideos();
-
-})();
-</script>
-</body>
-</html>
+  // 
