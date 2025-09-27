@@ -231,16 +231,24 @@
     if(!Array.isArray(videos) || videos.length===0){
       grid.innerHTML = '<div style="opacity:0.8">No videos yet. Admin will upload lessons here.</div>'; return;
     }
+
+    // compute origin base for absolute stream URLs
+    const ORIGIN_BASE = location.origin;
+
     videos.forEach(v=>{
       const card = document.createElement('div'); card.className='card';
       const vid = document.createElement('video');
       vid.controls = true;
       vid.setAttribute('controlsList','nodownload nofullscreen noremoteplayback');
       vid.preload = 'metadata';
+      vid.setAttribute('playsinline', ''); // help mobile playback
+      // ensure browser sends cookies for the media requests (needed when backend requires session cookie)
+      try { vid.crossOrigin = 'use-credentials'; } catch(e) { /* ignore if not supported */ }
+
       // keep original stream path in data attribute (for fallback)
-      const streamPath = '/stream/' + v.id;
+      const streamPath = ORIGIN_BASE + '/stream/' + v.id;
       vid.setAttribute('data-src', streamPath);
-      // video source: stream route from backend (keeps everything as-is)
+      // video source: absolute stream route from backend so cookies and CORS behave correctly
       vid.src = streamPath;
 
       // on play verify session is still active (same as before)
