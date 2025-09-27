@@ -1,3 +1,4 @@
+# app.py
 import os
 import secrets
 import logging
@@ -42,7 +43,7 @@ POSTGRES_URL = os.environ.get("DATABASE_URL") or (
 # Optional frontend origin for CORS when streaming video cross-origin
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN")  # e.g. "https://your-frontend.example.com"
 
-# SMTP/email config intentionally not used for now (you said payment emails not needed)
+# SMTP/email config intentionally not used for now
 SMTP_HOST = os.environ.get("SMTP_HOST")
 SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
 SMTP_USER = os.environ.get("SMTP_USER")
@@ -172,7 +173,7 @@ def set_session_cookie(resp, token):
     resp.set_cookie("session_token", token, httponly=True, samesite=samesite_val, secure=COOKIE_SECURE, path="/")
     return resp
 
-# -------------- Init DB & ensure admin PIN exists & non-revocable by default -----------------
+# -------------- Init DB & ensure admin PIN exists -----------------
 with app.app_context():
     db.create_all()
     admin_obj = Pin.query.filter_by(pin=ADMIN_PIN).first()
@@ -345,6 +346,7 @@ def api_videos():
 def make_range_response(path, request, download_name=None):
     """
     Returns a Response that supports HTTP Range requests for large files.
+    Also sets CORS headers echoing Origin when present so browser streaming with cookies works.
     """
     file_size = os.path.getsize(path)
     range_header = request.headers.get('Range', None)
@@ -404,29 +406,37 @@ def make_range_response(path, request, download_name=None):
         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
         'Content-Range': f'bytes {start}-{end}/{file_size}' if status == 206 else f'bytes 0-{file_size-1}/{file_size}',
     }
-    # CORS for streaming to another origin if FRONTEND_ORIGIN is set and matches request origin
+    # CORS: if Origin header present, echo it back and allow credentials so frontend can stream with cookies.
     origin = request.headers.get('Origin')
-    if FRONTEND_ORIGIN:
-        if origin and origin == FRONTEND_ORIGIN:
-            headers['Access-Control-Allow-Origin'] = origin
-            headers['Access-Control-Allow-Credentials'] = 'true'
-    else:
-        # if no FRONTEND_ORIGIN specified, allow same-origin only (no header)
-        pass
-
+    if origin:
+        headers['Access-Control-Allow-Origin'] = origin
+        headers['Access-Control-Allow-Credentials'] = 'true'
+        # allow common headers used by video players / XHR
+        headers['Access-Control-Allow-Headers'] = 'Range,Origin,Accept,Content-Type,Authorization'
+        headers['Access-Control-Expose-Headers'] = 'Content-Range,Accept-Ranges,Content-Length,Content-Type'
     rv = Response(generate(), status=status, headers=headers)
-    # add Content-Disposition when download_name provided
     if download_name:
         rv.headers['Content-Disposition'] = f'inline; filename="{download_name}"'
     return rv
 
-@app.route("/stream/<int:video_id>")
+@app.route("/stream/<int:video_id>", methods=["GET", "OPTIONS"])
 def stream_video(video_id):
+    # Support OPTIONS preflight for CORS
+    if request.method == "OPTIONS":
+        origin = request.headers.get('Origin')
+        resp = make_response('', 204)
+        if origin:
+            resp.headers['Access-Control-Allow-Origin'] = origin
+            resp.headers['Access-Control-Allow-Credentials'] = 'true'
+            resp.headers['Access-Control-Allow-Headers'] = 'Range,Origin,Accept,Content-Type,Authorization'
+            resp.headers['Access-Control-Expose-Headers'] = 'Content-Range,Accept-Ranges,Content-Length,Content-Type'
+        return resp
+
     # check session before streaming
     token = request.cookies.get("session_token")
     s = validate_session(token)
     if not s:
-        # return 401 so frontend will handle re-login
+        # return 401 so frontend will handle re-login (and browsers get 401)
         return ("Unauthorized", 401)
     v = Video.query.get(video_id)
     if not v:
@@ -458,7 +468,6 @@ def api_admin_upload_video():
         return jsonify({"success": True, "video_id": v.id})
     except Exception as exc:
         logger.exception("upload_video failed: %s", exc)
-        # remove partial file if written
         try:
             if os.path.exists(path):
                 os.remove(path)
@@ -466,7 +475,7 @@ def api_admin_upload_video():
             pass
         return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
 
-# --- NEW: chunked upload endpoints ---
+# Chunked endpoints (unchanged from previous patch)
 @app.route("/api/admin/upload_video_chunk", methods=["POST"])
 def api_admin_upload_video_chunk():
     if not admin_auth_ok(request):
@@ -489,7 +498,6 @@ def api_admin_upload_video_chunk():
 
     safe_upload_dir = os.path.join(CHUNK_FOLDER, secure_filename(upload_id))
     os.makedirs(safe_upload_dir, exist_ok=True)
-    # Save chunk with numeric index for easy ordering
     chunk_path = os.path.join(safe_upload_dir, f"part_{chunk_index_i:06d}.chunk")
     try:
         chunk_file.save(chunk_path)
@@ -515,7 +523,6 @@ def api_admin_finish_video_upload():
     if not os.path.isdir(safe_upload_dir):
         return jsonify({"success": False, "error": "upload_not_found"}), 404
 
-    # Collect chunk parts in sorted order
     parts = sorted([p for p in os.listdir(safe_upload_dir) if p.startswith("part_")])
     if not parts:
         return jsonify({"success": False, "error": "no_chunks_found"}), 400
@@ -528,10 +535,8 @@ def api_admin_finish_video_upload():
                 part_path = os.path.join(safe_upload_dir, part)
                 with open(part_path, "rb") as pf:
                     shutil.copyfileobj(pf, out_f)
-        # assembled file saved, create DB record
         v = Video(title=title, filename=safe_name, uploaded_at=now())
         db.session.add(v); db.session.commit()
-        # cleanup chunk dir
         try:
             shutil.rmtree(safe_upload_dir)
         except Exception:
@@ -539,7 +544,6 @@ def api_admin_finish_video_upload():
         return jsonify({"success": True, "video_id": v.id})
     except Exception as exc:
         logger.exception("Failed to assemble chunks for upload_id %s: %s", upload_id, exc)
-        # try to remove partially assembled output
         try:
             if os.path.exists(out_path):
                 os.remove(out_path)
@@ -584,16 +588,13 @@ def api_admin_revoke_pin():
     p = Pin.query.get(pin_id)
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
-    # If this is the protected ADMIN_PIN, require explicit confirmation (force:true) from an authenticated admin
+    # If this is the protected ADMIN_PIN, require explicit confirmation (force:true)
     if p.pin == ADMIN_PIN:
         if not force:
-            # <-- changed to 409 (conflict / confirm required) per request
             return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To revoke the admin PIN, include {\"force\": true} in the request body."}), 409
-        # if force == True and admin_auth_ok(request) passed, allow revocation
     p.revoked = True
     db.session.add(p); db.session.commit()
     return jsonify({"success": True})
-
 
 @app.route("/api/admin/delete_pin", methods=["POST"])
 def api_admin_delete_pin():
@@ -601,19 +602,28 @@ def api_admin_delete_pin():
         return jsonify({"success": False, "error": "admin_auth_required"}), 403
     data = request.get_json() or {}
     pin_id = data.get("pin_id")
-    force = bool(data.get("force", False))
+    # force no longer used for deletion of admin pin; admin pin is protected
     if not pin_id:
         return jsonify({"success": False, "error": "missing_pin_id"}), 400
     p = Pin.query.get(pin_id)
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
-    # ADMIN_PIN is protected by default; require force:true for deletion
+    # PROTECT admin PIN from deletion completely (per your instruction)
     if p.pin == ADMIN_PIN:
-        if not force:
-            # <-- changed to 409 (conflict / confirm required) per request
-            return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To delete the admin PIN, include {\"force\": true} in the request body."}), 409
-        # proceed with deletion if force provided and admin_auth_ok() validated above
+        return jsonify({"success": False, "error": "admin_pin_protected", "message": "Admin PIN cannot be deleted."}), 409
+
     try:
+        # FIRST: remove any sessions referencing this pin (avoids FK constraint errors)
+        try:
+            Session.query.filter_by(pin_id=p.id).delete(synchronize_session=False)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            # log and continue to attempt deletion of pin — but if session removal fails, return error
+            logger.exception("Failed to delete sessions for pin %s", p.id)
+            return jsonify({"success": False, "error": "delete_failed", "message": "Failed to remove sessions for pin."}), 500
+
+        # Now safe to delete the pin record
         db.session.delete(p)
         db.session.commit()
         return jsonify({"success": True})
@@ -731,7 +741,6 @@ def api_payment_proof():
             pass
         return jsonify({"success": False, "error": "db_failed", "message": str(exc)}), 500
 
-    # For now, do not attempt SMTP sending. Admin can view uploads via /view/file/<id> or from DB.
     return jsonify({"success": True})
 
 # -------------- Health -------------------
