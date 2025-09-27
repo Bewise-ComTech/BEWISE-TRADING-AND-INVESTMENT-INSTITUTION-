@@ -1,759 +1,590 @@
-# app.py
-import os
-import secrets
-import logging
-import mimetypes
-import shutil
-from datetime import datetime, timedelta
-from werkzeug.utils import secure_filename
-from flask import (
-    Flask, request, jsonify, render_template, send_from_directory,
-    make_response, abort, Response
-)
-from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
-from jinja2 import TemplateNotFound
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Admin Panel — Crypto Training</title>
+<link rel="icon" href="/logo.png">
+<style>
+  :root{ --bg:#071024; --card:#062035; --accent:#06b6d4; --danger:#ef4444; color-scheme: dark; }
+  body{ margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; background:linear-gradient(180deg,#031025,#071024); color:#e6eef8 }
+  header{ display:flex; align-items:center; gap:12px; padding:14px; background:linear-gradient(90deg,#06203a,#08304d) }
+  .logo{ height:36px }
+  .container{ padding:18px; max-width:1100px; margin:18px auto }
+  .row{ display:grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap:12px; margin-bottom:12px }
+  .card{ background:var(--card); padding:12px; border-radius:12px; box-shadow:0 8px 20px rgba(2,6,23,0.6) }
+  input,textarea,select{ width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:inherit; box-sizing:border-box }
+  button{ padding:10px 12px; border-radius:8px; border:0; background:var(--accent); color:#042a2b; font-weight:700; cursor:pointer }
+  button.danger{ background:var(--danger); color:white }
+  table{ width:100%; border-collapse:collapse; margin-top:10px }
+  th,td{ padding:8px; border-bottom:1px solid rgba(255,255,255,0.04); text-align:left; font-size:13px }
+  th.sortable { cursor:pointer; user-select:none; }
+  th .sort-ind { margin-left:6px; font-size:11px; opacity:0.9; }
+  .hint{ margin-top:8px; font-size:13px; opacity:0.9 }
+  .error { color: #ffb4b4; }
+  .ok { color: #baf7ff; }
+  .small-muted { font-size:12px; opacity:0.85; }
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(2,6,23,0.6); display:none; align-items:center; justify-content:center; z-index:9999; }
+  .modal-panel{ background:#0b1220; padding:18px; border-radius:10px; width:96%; max-width:520px; box-shadow:0 12px 40px rgba(0,0,0,0.6); color:#e6eef8 }
+  .btn-small { padding:6px 8px; font-size:13px; border-radius:8px; }
+  .btn-muted { background:#6b7280; color:#fff; border:0; }
+  .spinner { display:inline-block; width:14px; height:14px; border-radius:50%; border:2px solid rgba(255,255,255,0.12); border-top-color: var(--accent); animation: spin 1s linear infinite; vertical-align:middle; margin-left:8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .small-toolbar { display:flex; gap:8px; align-items:center; }
+  .search-input { width:220px; padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:inherit }
+  .muted { opacity:0.85; font-size:13px; }
+  .top-actions { display:flex; gap:8px; align-items:center; }
+  .hidden { display:none!important; }
+</style>
+</head>
+<body>
+<header>
+  <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" class="logo" alt="logo">
+  <div><div style="font-weight:700">BEWISE TRADING AND INVESTMENT INSTITUTION</div></div>
+</header>
+<div class="container" id="app">
+  <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:12px">
+    <div class="hint">Admin access is session-protected (cookie). You must login from / first.</div>
+    <div class="top-actions">
+      <button id="btnRefresh">Refresh</button>
+      <button id="btnLogout" class="danger">Logout</button>
+    </div>
+  </div>
 
-# --------------- Configuration ---------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
-CHUNK_FOLDER = os.path.join(UPLOAD_FOLDER, "chunks")
-TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
+  <div class="row">
+    <div class="card">
+      <h3 style="margin:0 0 8px">Generate PIN</h3>
+      <label class="hint">Note (student name or email)</label>
+      <input id="noteInput" placeholder="e.g. John Doe / john@example.com">
+      <button id="btnGenerate">Generate 6-digit PIN<span id="genSpinner" class="spinner hidden"></span></button>
+      <div id="generateResult" class="hint"></div>
+    </div>
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(CHUNK_FOLDER, exist_ok=True)
-os.makedirs(STATIC_DIR, exist_ok=True)
-os.makedirs(TEMPLATES_DIR, exist_ok=True)
+    <div class="card">
+      <h3 style="margin:0 0 8px">Upload Video</h3>
+      <label class="hint">Video Title</label>
+      <input id="videoTitle" placeholder="Lesson 1 - Intro">
+      <label class="hint">Video File</label>
+      <input id="videoFile" type="file" accept="video/*">
+      <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+        <button id="btnUpload">Upload Video</button>
+        <div id="uploadResult" class="hint muted"></div>
+      </div>
 
-# Env-configurable (default admin PIN set to 811335 as requested)
-ADMIN_PIN = os.environ.get("ADMIN_PIN", "811335")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", ADMIN_PIN)
-ALLOWED_DEVICE_HASH = os.environ.get("ALLOWED_DEVICE_HASH")   # optional lock-to-device
-SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(24))
-MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 200 * 1024 * 1024))
-COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
+      <hr style="margin:12px 0;border:none;border-top:1px solid rgba(255,255,255,0.04)">
 
-# Render/Postgres DB you gave (or override with DATABASE_URL env var)
-POSTGRES_URL = os.environ.get("DATABASE_URL") or (
-    "postgresql://crypto_trading_ef73_user:ExqngrM4GrJX6FmefoA1g3BRPu2kF0tk@"
-    "dpg-d37inupr0fns739ha5r0-a.oregon-postgres.render.com/crypto_trading_ef73"
-)
+      <h4 style="margin:0 0 8px">Upload File (any file)</h4>
+      <label class="hint">File Title / Note</label>
+      <input id="fileTitle" placeholder="Resource name">
+      <label class="hint">File</label>
+      <input id="anyFile" type="file" accept="*/*">
+      <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+        <button id="btnUploadFile">Upload File</button>
+        <div id="uploadFileResult" class="hint muted"></div>
+      </div>
+    </div>
+  </div>
 
-# Optional frontend origin for CORS when streaming video cross-origin
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN")  # e.g. "https://your-frontend.example.com"
+  <div class="row">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0 0 8px">Active PINs</h3>
+        <div class="small-toolbar">
+          <input id="pinsSearch" class="search-input" placeholder="Search pins / notes / device">
+          <div id="pinsCount" class="muted"></div>
+        </div>
+      </div>
+      <div id="pinsArea">Loading pins...</div>
+    </div>
 
-# SMTP/email config intentionally not used for now
-SMTP_HOST = os.environ.get("SMTP_HOST")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
-SMTP_USER = os.environ.get("SMTP_USER")
-SMTP_PASS = os.environ.get("SMTP_PASS")
-EMAIL_FROM = os.environ.get("EMAIL_FROM", SMTP_USER)
-EMAIL_TO = os.environ.get("EMAIL_TO", "ezehebubechidubem@gmail.com")
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0 0 8px">Uploaded Videos</h3>
+        <div class="small-toolbar">
+          <input id="videosSearch" class="search-input" placeholder="Search title">
+          <div id="videosCount" class="muted"></div>
+        </div>
+      </div>
+      <div id="videosArea">Loading videos...</div>
+    </div>
+  </div>
+</div>
 
-# --------------- App setup ---------------
-app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
-app.config["SQLALCHEMY_DATABASE_URI"] = POSTGRES_URL
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
-app.secret_key = SECRET_KEY
+<div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
+  <div class="modal-panel">
+    <div id="modalTitle" style="font-weight:800;margin-bottom:8px">Title</div>
+    <div id="modalBody" style="margin-bottom:12px"></div>
+    <div style="text-align:right"><button id="modalOk" class="btn-small">OK</button></div>
+  </div>
+</div>
 
-# Keep CORS for APIs; streaming will add CORS headers dynamically as needed.
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+<script>
+(async function(){
+  // config
+  const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';
+  const RENDER_BASE = 'https://' + RENDER_HOST;
+  const RENDER_API = RENDER_BASE + '/api';
+  const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_API;
+  const UI_BASE = (location.hostname === RENDER_HOST) ? '' : RENDER_BASE;
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("crypto_training")
+  // DOM refs
+  const pinsArea = document.getElementById('pinsArea'), videosArea = document.getElementById('videosArea'),
+        btnGenerate = document.getElementById('btnGenerate'), noteInput = document.getElementById('noteInput'),
+        generateResult = document.getElementById('generateResult'), btnUpload = document.getElementById('btnUpload'),
+        videoTitle = document.getElementById('videoTitle'), videoFile = document.getElementById('videoFile'),
+        uploadResult = document.getElementById('uploadResult'), btnRefresh = document.getElementById('btnRefresh'),
+        btnLogout = document.getElementById('btnLogout'), btnUploadFile = document.getElementById('btnUploadFile'),
+        anyFile = document.getElementById('anyFile'), fileTitle = document.getElementById('fileTitle'),
+        uploadFileResult = document.getElementById('uploadFileResult'), genSpinner = document.getElementById('genSpinner'),
+        pinsSearch = document.getElementById('pinsSearch'), videosSearch = document.getElementById('videosSearch'),
+        pinsCount = document.getElementById('pinsCount'), videosCount = document.getElementById('videosCount');
 
-db = SQLAlchemy(app)
+  const modalBackdrop = document.getElementById('modalBackdrop'), modalTitle = document.getElementById('modalTitle'),
+        modalBody = document.getElementById('modalBody'), modalOk = document.getElementById('modalOk');
 
-# --------------- Models ---------------
-class Pin(db.Model):
-    __tablename__ = "pins"
-    id = db.Column(db.Integer, primary_key=True)
-    pin = db.Column(db.String(6), unique=True, nullable=False)
-    note = db.Column(db.String(256))
-    device_id = db.Column(db.String(512))
-    ip = db.Column(db.String(64))
-    revoked = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    assigned_at = db.Column(db.DateTime, nullable=True)
+  function showMessage(title, message){
+    modalTitle.innerText = title;
+    modalBody.innerText = (typeof message === 'string') ? message : JSON.stringify(message);
+    modalBackdrop.style.display = 'flex';
+    return new Promise((res)=>{ modalOk.onclick = ()=>{ modalBackdrop.style.display='none'; res(true); }; });
+  }
 
-class Video(db.Model):
-    __tablename__ = "videos"
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(512))
-    filename = db.Column(db.String(1024))
-    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+  function showSpinnerOn(el){ if(!el) return; let s = el.querySelector('.spinner'); if(!s){ s = document.createElement('span'); s.className='spinner'; el.appendChild(s);} s.classList.remove('hidden'); }
+  function hideSpinnerOn(el){ if(!el) return; const s = el.querySelector('.spinner'); if(s) s.classList.add('hidden'); }
 
-class File(db.Model):
-    __tablename__ = "files"
-    id = db.Column(db.Integer, primary_key=True)
-    title = db.Column(db.String(512))
-    filename = db.Column(db.String(1024))
-    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+  // safe JSON parse helper
+  async function safeParseJson(resp){
+    try { return await resp.json(); } catch(e){ return null; }
+  }
 
-class Payment(db.Model):
-    __tablename__ = "payments"
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200))
-    email = db.Column(db.String(200))
-    course_title = db.Column(db.String(300))
-    proof_filename = db.Column(db.String(1024))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-class Session(db.Model):
-    __tablename__ = "sessions"
-    token = db.Column(db.String(128), primary_key=True)
-    pin_id = db.Column(db.Integer, db.ForeignKey("pins.id"))
-    device_id = db.Column(db.String(512))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    expires_at = db.Column(db.DateTime)
-
-# --------------- Utilities --------------
-def now():
-    return datetime.utcnow()
-
-def generate_pin():
-    for _ in range(30):
-        candidate = "{:06d}".format(secrets.randbelow(900000) + 100000)
-        if not Pin.query.filter_by(pin=candidate).first():
-            return candidate
-    raise RuntimeError("Unable to generate unique PIN")
-
-def create_session(pin_id, device_id, hours=24):
-    token = secrets.token_urlsafe(40)
-    s = Session(token=token, pin_id=pin_id, device_id=device_id,
-                created_at=now(), expires_at=now() + timedelta(hours=hours))
-    db.session.add(s); db.session.commit()
-    return token
-
-def validate_session(token):
-    if not token:
-        return None
-    s = Session.query.filter_by(token=token).first()
-    if not s:
-        return None
-    if s.expires_at < now():
-        try:
-            db.session.delete(s); db.session.commit()
-        except Exception:
-            pass
-        return None
-    p = Pin.query.get(s.pin_id)
-    if not p:
-        try:
-            db.session.delete(s); db.session.commit()
-        except Exception:
-            pass
-        return None
-    if p.revoked and p.pin != ADMIN_PIN:
-        try:
-            db.session.delete(s); db.session.commit()
-        except Exception:
-            pass
-        return None
-    return s
-
-def admin_auth_ok(req):
-    # Header-based admin shortcut
-    header = req.headers.get("X-ADMIN-PW")
-    if header and header == ADMIN_PASSWORD:
-        return True
-    token = req.cookies.get("session_token")
-    s = validate_session(token)
-    if s:
-        p = Pin.query.get(s.pin_id)
-        if p and p.pin == ADMIN_PIN:
-            return True
-    return False
-
-def set_session_cookie(resp, token):
-    samesite_val = "None" if COOKIE_SECURE else "Lax"
-    resp.set_cookie("session_token", token, httponly=True, samesite=samesite_val, secure=COOKIE_SECURE, path="/")
-    return resp
-
-# -------------- Init DB & ensure admin PIN exists -----------------
-with app.app_context():
-    db.create_all()
-    admin_obj = Pin.query.filter_by(pin=ADMIN_PIN).first()
-    if not admin_obj:
-        admin_obj = Pin(pin=ADMIN_PIN, note="admin-pin", created_at=now(), revoked=False)
-        db.session.add(admin_obj); db.session.commit()
-        logger.info("Admin pin created: %s", ADMIN_PIN)
-    else:
-        if admin_obj.revoked:
-            admin_obj.revoked = False
-            db.session.add(admin_obj); db.session.commit()
-            logger.info("Admin pin was revoked, reset to active: %s", ADMIN_PIN)
-
-# -------------- Error Handling -----------
-@app.errorhandler(413)
-def request_entity_too_large(e):
-    return jsonify({"success": False, "error": "file_too_large"}), 413
-
-@app.errorhandler(Exception)
-def handle_exception(e):
-    logger.exception("Unhandled exception: %s", e)
-    if request.path.startswith("/api/"):
-        return jsonify({"error": "internal_server_error", "message": str(e), "success": False}), 500
-    try:
-        return render_template("error.html", message=str(e)), 500
-    except TemplateNotFound:
-        body = f"<h1>Internal Server Error</h1><pre>{str(e)}</pre>"
-        resp = make_response(body, 500)
-        resp.headers["Content-Type"] = "text/html; charset=utf-8"
-        return resp
-
-# -------------- Page Routes & safe rendering --------------
-def safe_render(name):
-    candidates = [f"{name}.html"]
-    if name == "authentication":
-        candidates.append("index.html")
-    for tpl in candidates:
-        try:
-            return render_template(tpl)
-        except TemplateNotFound:
-            path = os.path.join(app.template_folder or TEMPLATES_DIR, tpl)
-            if os.path.exists(path):
-                return send_from_directory(app.template_folder, tpl)
-    abort(404, description=f"Template not found: {name}.html")
-
-@app.route("/", methods=["GET"])
-def root():
-    return safe_render("authentication")
-
-@app.route("/authentication.html", methods=["GET"])
-def authentication_page():
-    return safe_render("authentication")
-
-@app.route("/admin", methods=["GET"])
-def admin_page():
-    return safe_render("admin")
-
-@app.route("/dashboard", methods=["GET"])
-def dashboard_page():
-    return safe_render("dashboard")
-
-@app.route("/course", methods=["GET"])
-def course_page():
-    return safe_render("course")
-
-@app.route("/payment", methods=["GET"])
-def payment_page():
-    return safe_render("payment")
-
-@app.route("/files", methods=["GET"])
-def files_page():
-    return safe_render("files")
-
-@app.route("/logo.png")
-def logo():
-    path = os.path.join(app.static_folder or STATIC_DIR, "logo.png")
-    if os.path.exists(path):
-        return send_from_directory(app.static_folder, "logo.png")
-    svg = ("<svg xmlns='http://www.w3.org/2000/svg' width='200' height='60'>"
-           "<rect width='100%' height='100%' fill='#444'/>"
-           "<text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='#fff' font-size='18'>LOGO</text></svg>")
-    resp = make_response(svg)
-    resp.headers['Content-Type'] = 'image/svg+xml'
-    return resp
-
-# -------------- API: Auth ----------------
-@app.route("/api/login", methods=["POST"])
-def api_login():
-    data = (request.get_json() or {})
-    pin = (data.get("pin") or "").strip()
-    device_id = (data.get("device_id") or "").strip()
-    ip = request.remote_addr
-
-    if not pin or len(pin) != 6 or not pin.isdigit():
-        return jsonify({"success": False, "error": "invalid_pin_format"}), 400
-
-    if ALLOWED_DEVICE_HASH and device_id and device_id != ALLOWED_DEVICE_HASH:
-        return jsonify({"success": False, "error": "device_not_allowed", "message": "Installation locked to a specific device."}), 403
-
-    p = Pin.query.filter_by(pin=pin).first()
-    if not p:
-        return jsonify({"success": False, "error": "pin_not_found"}), 404
-
-    # Only treat revoked as blocking for non-admin PINs
-    if p.revoked and p.pin != ADMIN_PIN:
-        return jsonify({"success": False, "error": "pin_revoked"}), 403
-
-    # assign on first use
-    if not p.device_id:
-        p.device_id = device_id
-        p.ip = ip
-        p.assigned_at = now()
-        db.session.add(p); db.session.commit()
-        token = create_session(p.id, device_id)
-        resp = jsonify({"success": True, "message": "logged_in", "role": ("admin" if p.pin == ADMIN_PIN else "user")})
-        set_session_cookie(resp, token)
-        return resp
-
-    # if device matches -> issue session
-    if p.device_id == device_id:
-        token = create_session(p.id, device_id)
-        resp = jsonify({"success": True, "message": "logged_in", "role": ("admin" if p.pin == ADMIN_PIN else "user")})
-        set_session_cookie(resp, token)
-        return resp
-
-    # different device:
-    # If admin PIN -> do NOT revoke automatically. Update assigned device (admin non-revocable by default).
-    if p.pin == ADMIN_PIN:
-        p.device_id = device_id
-        p.ip = ip
-        p.assigned_at = now()
-        db.session.add(p); db.session.commit()
-        token = create_session(p.id, device_id)
-        resp = jsonify({"success": True, "message": "logged_in", "role": "admin"})
-        set_session_cookie(resp, token)
-        return resp
-
-    # otherwise revoke the pin for security
-    p.revoked = True
-    db.session.add(p); db.session.commit()
-    return jsonify({"success": False, "error": "revoked_due_to_multiple_devices", "message": "PIN revoked because it was used on another device."}), 403
-
-@app.route("/api/check_session")
-def api_check_session():
-    token = request.cookies.get("session_token")
-    s = validate_session(token)
-    if not s:
-        return jsonify({"logged_in": False})
-    p = Pin.query.get(s.pin_id)
-    return jsonify({"logged_in": True, "pin_id": s.pin_id, "device_id": s.device_id, "is_admin": (p.pin == ADMIN_PIN if p else False)})
-
-@app.route("/api/logout", methods=["POST"])
-def api_logout():
-    token = request.cookies.get("session_token")
-    if token:
-        s = Session.query.get(token)
-        if s:
-            db.session.delete(s); db.session.commit()
-    resp = jsonify({"success": True})
-    resp.delete_cookie("session_token", path="/")
-    return resp
-
-# -------------- API: Videos -------------
-@app.route("/api/videos")
-def api_videos():
-    rows = Video.query.order_by(Video.uploaded_at.desc()).all()
-    return jsonify([{"id": r.id, "title": r.title, "uploaded_at": r.uploaded_at.isoformat()} for r in rows])
-
-# -------------- Range-capable streaming helper -------------
-def make_range_response(path, request, download_name=None):
-    """
-    Returns a Response that supports HTTP Range requests for large files.
-    Also sets CORS headers echoing Origin when present so browser streaming with cookies works.
-    """
-    file_size = os.path.getsize(path)
-    range_header = request.headers.get('Range', None)
-    if range_header:
-        # parse "bytes=start-end"
-        try:
-            ranges = range_header.strip().split('=')[1]
-            if ',' in ranges:
-                # multiple ranges not supported; return full for simplicity
-                start = 0
-                end = file_size - 1
-            else:
-                if ranges.startswith('-'):
-                    # suffix: last N bytes
-                    length = int(ranges[1:])
-                    start = max(file_size - length, 0)
-                    end = file_size - 1
-                elif ranges.endswith('-'):
-                    start = int(ranges[:-1])
-                    end = file_size - 1
-                else:
-                    start_s, end_s = ranges.split('-')
-                    start = int(start_s) if start_s else 0
-                    end = int(end_s) if end_s else file_size - 1
-                # clamp
-                start = max(0, min(start, file_size - 1))
-                end = max(0, min(end, file_size - 1))
-        except Exception as e:
-            logger.exception("Invalid Range header: %s", e)
-            start = 0
-            end = file_size - 1
-    else:
-        start = 0
-        end = file_size - 1
-
-    length = end - start + 1
-    content_type = mimetypes.guess_type(path)[0] or 'application/octet-stream'
-
-    def generate():
-        with open(path, 'rb') as f:
-            f.seek(start)
-            remaining = length
-            chunk_size = 64 * 1024
-            while remaining > 0:
-                read_sz = min(chunk_size, remaining)
-                data = f.read(read_sz)
-                if not data:
-                    break
-                remaining -= len(data)
-                yield data
-
-    status = 206 if (range_header and (start != 0 or end != file_size - 1)) else 200
-    headers = {
-        'Content-Type': content_type,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': str(length),
-        'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
-        'Content-Range': f'bytes {start}-{end}/{file_size}' if status == 206 else f'bytes 0-{file_size-1}/{file_size}',
+  async function apiFetch(path, opts = {}){
+    const url = API + path;
+    const finalOpts = Object.assign({ credentials: 'include' }, opts);
+    try {
+      const res = await fetch(url, finalOpts);
+      if(res.status === 401){
+        await showMessage('Unauthorized', 'Session expired or not authorized. Redirecting to login.');
+        window.location.href = UI_BASE + '/';
+        throw new Error('unauthorized');
+      }
+      return res;
+    } catch(err){
+      console.error('apiFetch error', url, err);
+      throw err;
     }
-    # CORS: if Origin header present, echo it back and allow credentials so frontend can stream with cookies.
-    origin = request.headers.get('Origin')
-    if origin:
-        headers['Access-Control-Allow-Origin'] = origin
-        headers['Access-Control-Allow-Credentials'] = 'true'
-        # allow common headers used by video players / XHR
-        headers['Access-Control-Allow-Headers'] = 'Range,Origin,Accept,Content-Type,Authorization'
-        headers['Access-Control-Expose-Headers'] = 'Content-Range,Accept-Ranges,Content-Length,Content-Type'
-    rv = Response(generate(), status=status, headers=headers)
-    if download_name:
-        rv.headers['Content-Disposition'] = f'inline; filename="{download_name}"'
-    return rv
+  }
 
-@app.route("/stream/<int:video_id>", methods=["GET", "OPTIONS"])
-def stream_video(video_id):
-    # Support OPTIONS preflight for CORS
-    if request.method == "OPTIONS":
-        origin = request.headers.get('Origin')
-        resp = make_response('', 204)
-        if origin:
-            resp.headers['Access-Control-Allow-Origin'] = origin
-            resp.headers['Access-Control-Allow-Credentials'] = 'true'
-            resp.headers['Access-Control-Allow-Headers'] = 'Range,Origin,Accept,Content-Type,Authorization'
-            resp.headers['Access-Control-Expose-Headers'] = 'Content-Range,Accept-Ranges,Content-Length,Content-Type'
-        return resp
+  // session check
+  async function checkSession(){
+    try{
+      const r = await apiFetch('/check_session');
+      const j = await safeParseJson(r) || {};
+      return j;
+    }catch(e){ return { logged_in:false }; }
+  }
 
-    # check session before streaming
-    token = request.cookies.get("session_token")
-    s = validate_session(token)
-    if not s:
-        # return 401 so frontend will handle re-login (and browsers get 401)
-        return ("Unauthorized", 401)
-    v = Video.query.get(video_id)
-    if not v:
-        return ("Not found", 404)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
-    if not os.path.exists(path):
-        return ("File missing", 404)
-    try:
-        return make_range_response(path, request, download_name=v.filename)
-    except Exception as exc:
-        logger.exception("Streaming failed for %s: %s", path, exc)
-        return ("Streaming error", 500)
+  const session = await checkSession();
+  if(!session.logged_in || !session.is_admin){
+    await showMessage('Admin required', 'Admin access requires you to login with admin PIN (811335) on this device first. Redirecting to login.');
+    window.location.href = UI_BASE + '/';
+    return;
+  }
 
-# -------------- API: Admin -------------
-@app.route("/api/admin/upload_video", methods=["POST"])
-def api_admin_upload_video():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    title = request.form.get("title", "").strip()
-    f = request.files.get("video")
-    if not f or not title:
-        return jsonify({"success": False, "error": "missing_title_or_file"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        f.save(path)
-        v = Video(title=title, filename=safe_name, uploaded_at=now())
-        db.session.add(v); db.session.commit()
-        return jsonify({"success": True, "video_id": v.id})
-    except Exception as exc:
-        logger.exception("upload_video failed: %s", exc)
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
+  // state
+  window.latestPins = [];
+  window.latestVideos = [];
+  const pinsState = { sortKey: 'created_at', sortDir: -1 };
+  const videosState = { sortKey: 'uploaded_at', sortDir: -1 };
 
-# Chunked endpoints (unchanged from previous patch)
-@app.route("/api/admin/upload_video_chunk", methods=["POST"])
-def api_admin_upload_video_chunk():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+  function renderPins(){
+    const q = (pinsSearch.value||'').toLowerCase().trim();
+    let rows = window.latestPins.slice();
+    if(q){
+      rows = rows.filter(p => (p.pin||'').toLowerCase().includes(q) || (p.note||'').toLowerCase().includes(q) || (p.device_id||'').toLowerCase().includes(q) || (p.ip||'').toLowerCase().includes(q));
+    }
+    rows.sort((a,b) => {
+      const k = pinsState.sortKey;
+      let va = a[k] || '';
+      let vb = b[k] || '';
+      if(k === 'created_at' || k === 'assigned_at'){
+        va = a[k] ? Date.parse(a[k]) : 0;
+        vb = b[k] ? Date.parse(b[k]) : 0;
+      }
+      if(va < vb) return -1 * pinsState.sortDir;
+      if(va > vb) return 1 * pinsState.sortDir;
+      return 0;
+    });
 
-    upload_id = request.form.get("upload_id") or request.values.get("upload_id")
-    filename = request.form.get("filename") or request.values.get("filename")
-    chunk_index = request.form.get("chunk_index")
-    total_chunks = request.form.get("total_chunks")
-    chunk_file = request.files.get("chunk")
+    pinsCount.innerText = `Showing ${rows.length} / ${window.latestPins.length}`;
+    const table = document.createElement('table');
+    table.innerHTML = `<thead>
+      <tr>
+        <th class="sortable" data-key="id">ID <span class="sort-ind"></span></th>
+        <th class="sortable" data-key="pin">PIN <span class="sort-ind"></span></th>
+        <th class="sortable" data-key="note">Note <span class="sort-ind"></span></th>
+        <th class="sortable" data-key="device_id">Device <span class="sort-ind"></span></th>
+        <th class="sortable" data-key="ip">IP <span class="sort-ind"></span></th>
+        <th class="sortable" data-key="revoked">Revoked <span class="sort-ind"></span></th>
+        <th>Action</th>
+      </tr>
+    </thead>`;
+    const tbody = document.createElement('tbody');
 
-    if not upload_id or not filename or chunk_index is None or total_chunks is None or not chunk_file:
-        return jsonify({"success": False, "error": "missing_chunk_fields"}), 400
+    rows.forEach(p => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${p.id}</td><td>${p.pin}</td><td>${p.note||''}</td><td style="max-width:180px;word-break:break-word">${p.device_id||''}</td><td>${p.ip||''}</td><td>${p.revoked? 'YES':''}</td>`;
+      const td = document.createElement('td');
 
-    try:
-        chunk_index_i = int(chunk_index)
-        total_chunks_i = int(total_chunks)
-    except Exception:
-        return jsonify({"success": False, "error": "invalid_chunk_index_or_total"}), 400
+      if(!p.revoked){
+        const btn = document.createElement('button');
+        btn.className = 'btn-small'; btn.innerText = 'Revoke';
+        btn.addEventListener('click', async ()=>{
+          const ok = confirm('Revoke PIN ' + p.pin + ' ?');
+          if(!ok) return;
+          btn.disabled = true; showSpinnerOn(btn);
+          try {
+            const rr = await apiFetch('/admin/revoke_pin', {
+              method:'POST',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({ pin_id: p.id })
+            });
+            if(rr.status === 409){
+              const jr = await safeParseJson(rr);
+              if(jr && jr.error === 'confirm_admin_action_required'){
+                const confirmForce = confirm('This is the protected admin PIN. To revoke it you must confirm this action. Confirm revoke?');
+                if(confirmForce){
+                  const rr2 = await apiFetch('/admin/revoke_pin', {
+                    method:'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ pin_id: p.id, force: true })
+                  });
+                  const jr2 = await safeParseJson(rr2) || {};
+                  if(rr2.ok && jr2.success){ await showMessage('Info','PIN revoked'); await loadPins(); }
+                  else { await showMessage('Error','Failed to revoke: ' + (jr2.error || jr2.message || 'server')); }
+                } else {
+                  await showMessage('Cancelled','Revoke cancelled.');
+                }
+                btn.disabled = false; hideSpinnerOn(btn); return;
+              }
+            }
+            const jr = await safeParseJson(rr) || {};
+            if(rr.ok && jr.success){ await showMessage('Info','PIN revoked'); await loadPins(); }
+            else { await showMessage('Error','Failed to revoke: ' + (jr.error || jr.message || ('status ' + rr.status))); }
+          } catch(err){ console.error(err); await showMessage('Network', 'Network error while revoking'); }
+          btn.disabled = false; hideSpinnerOn(btn);
+        });
+        td.appendChild(btn);
+      } else {
+        const span = document.createElement('span'); span.innerText = '-'; td.appendChild(span);
+      }
 
-    safe_upload_dir = os.path.join(CHUNK_FOLDER, secure_filename(upload_id))
-    os.makedirs(safe_upload_dir, exist_ok=True)
-    chunk_path = os.path.join(safe_upload_dir, f"part_{chunk_index_i:06d}.chunk")
-    try:
-        chunk_file.save(chunk_path)
-        return jsonify({"success": True, "saved": True, "chunk_index": chunk_index_i, "total_chunks": total_chunks_i})
-    except Exception as exc:
-        logger.exception("Failed to save chunk %s: %s", chunk_path, exc)
-        return jsonify({"success": False, "error": "chunk_save_failed", "message": str(exc)}), 500
+      const del = document.createElement('button'); del.className='btn-small btn-muted'; del.style.marginLeft='8px'; del.innerText='Delete';
+      del.addEventListener('click', async ()=>{
+        const ok = confirm('Delete PIN record?');
+        if(!ok) return;
+        del.disabled = true; showSpinnerOn(del);
+        try {
+          const rr = await apiFetch('/admin/delete_pin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pin_id: p.id })});
+          // If admin pin protected, server returns admin_pin_protected
+          if(rr.status === 409){
+            const jr = await safeParseJson(rr) || {};
+            if(jr.error === 'admin_pin_protected'){
+              await showMessage('Protected','Admin PIN cannot be deleted.');
+              del.disabled = false; hideSpinnerOn(del); return;
+            }
+            if(jr && jr.error === 'confirm_admin_action_required'){
+              const confirmForce = confirm('This PIN requires confirmation to delete. Delete anyway?');
+              if(confirmForce){
+                const rr2 = await apiFetch('/admin/delete_pin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pin_id: p.id, force: true })});
+                const jr2 = await safeParseJson(rr2) || {};
+                if(rr2.ok && jr2.success){ await showMessage('Info','Deleted'); await loadPins(); }
+                else { await showMessage('Error','Failed to delete: ' + (jr2.error || jr2.message || ('status ' + rr2.status))); }
+              } else {
+                await showMessage('Cancelled','Delete cancelled.');
+              }
+              del.disabled = false; hideSpinnerOn(del); return;
+            }
+          }
+          const jr = await safeParseJson(rr) || {};
+          if(rr.ok && jr.success){ await showMessage('Info','Deleted'); await loadPins(); }
+          else { await showMessage('Error','Failed to delete: ' + (jr.error || jr.message || ('status ' + rr.status))); }
+        } catch(err){ console.error(err); await showMessage('Network','Network error while deleting PIN'); }
+        del.disabled = false; hideSpinnerOn(del);
+      });
+      td.appendChild(del);
 
-@app.route("/api/admin/finish_video_upload", methods=["POST"])
-def api_admin_finish_video_upload():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    });
 
-    data = request.get_json() or {}
-    upload_id = data.get("upload_id")
-    filename = data.get("filename")
-    title = data.get("title", "")[:512]
+    table.appendChild(tbody);
+    pinsArea.innerHTML = ''; pinsArea.appendChild(table);
 
-    if not upload_id or not filename or not title:
-        return jsonify({"success": False, "error": "missing_finish_fields"}), 400
+    // sorting
+    table.querySelectorAll('th.sortable').forEach(th => {
+      th.onclick = ()=>{
+        const key = th.getAttribute('data-key');
+        if(pinsState.sortKey === key) pinsState.sortDir = -pinsState.sortDir; else { pinsState.sortKey = key; pinsState.sortDir = -1; }
+        table.querySelectorAll('th.sortable .sort-ind').forEach(si => si.innerText = '');
+        const si = th.querySelector('.sort-ind'); si.innerText = pinsState.sortDir === -1 ? '▼' : '▲';
+        renderPins();
+      };
+    });
+  }
 
-    safe_upload_dir = os.path.join(CHUNK_FOLDER, secure_filename(upload_id))
-    if not os.path.isdir(safe_upload_dir):
-        return jsonify({"success": False, "error": "upload_not_found"}), 404
+  function renderVideos(){
+    const q = (videosSearch.value||'').toLowerCase().trim();
+    let rows = window.latestVideos.slice();
+    if(q){
+      rows = rows.filter(v => (v.title||'').toLowerCase().includes(q));
+    }
+    rows.sort((a,b)=>{
+      const k = videosState.sortKey;
+      let va = a[k] || '';
+      let vb = b[k] || '';
+      if(k === 'uploaded_at'){ va = a[k] ? Date.parse(a[k]) : 0; vb = b[k] ? Date.parse(b[k]) : 0; }
+      if(va < vb) return -1 * videosState.sortDir;
+      if(va > vb) return 1 * videosState.sortDir;
+      return 0;
+    });
 
-    parts = sorted([p for p in os.listdir(safe_upload_dir) if p.startswith("part_")])
-    if not parts:
-        return jsonify({"success": False, "error": "no_chunks_found"}), 400
+    videosCount.innerText = `Showing ${rows.length} / ${window.latestVideos.length}`;
+    const table = document.createElement('table');
+    table.innerHTML = `<thead><tr>
+      <th class="sortable" data-key="id">ID <span class="sort-ind"></span></th>
+      <th class="sortable" data-key="title">Title <span class="sort-ind"></span></th>
+      <th class="sortable" data-key="uploaded_at">Uploaded <span class="sort-ind"></span></th>
+      <th>Action</th>
+    </tr></thead>`;
+    const tbody = document.createElement('tbody');
 
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(filename)
-    out_path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        with open(out_path, "wb") as out_f:
-            for part in parts:
-                part_path = os.path.join(safe_upload_dir, part)
-                with open(part_path, "rb") as pf:
-                    shutil.copyfileobj(pf, out_f)
-        v = Video(title=title, filename=safe_name, uploaded_at=now())
-        db.session.add(v); db.session.commit()
-        try:
-            shutil.rmtree(safe_upload_dir)
-        except Exception:
-            logger.exception("Failed to remove chunk directory %s", safe_upload_dir)
-        return jsonify({"success": True, "video_id": v.id})
-    except Exception as exc:
-        logger.exception("Failed to assemble chunks for upload_id %s: %s", upload_id, exc)
-        try:
-            if os.path.exists(out_path):
-                os.remove(out_path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "assemble_failed", "message": str(exc)}), 500
+    rows.forEach(v => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${v.id}</td><td>${v.title}</td><td>${v.uploaded_at||''}</td>`;
+      const td = document.createElement('td');
 
-# -------------- Remaining admin endpoints -------------
-@app.route("/api/admin/generate_pin", methods=["POST"])
-def api_admin_generate_pin():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    note = (request.get_json() or {}).get("note", "")[:200]
-    pin = generate_pin()
-    p = Pin(pin=pin, note=note, created_at=now(), revoked=False)
-    db.session.add(p); db.session.commit()
-    return jsonify({"success": True, "pin": pin})
+      const play = document.createElement('button'); play.className='btn-small'; play.innerText='Play';
+      play.addEventListener('click', ()=>{
+        // open stream endpoint in new tab/window so cookies authenticate
+        const streamUrl = (location.hostname === '${RENDER_HOST}' ? '' : '${RENDER_BASE}') + '/stream/' + v.id;
+        // If UI_BASE is non-empty, we should use it; but building dynamically in JS:
+        const UI_BASE = (location.hostname === '${RENDER_HOST}') ? '' : '${RENDER_BASE}';
+        window.open(UI_BASE + '/stream/' + v.id, '_blank');
+      });
+      td.appendChild(play);
 
-@app.route("/api/admin/pins")
-def api_admin_pins():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    rows = Pin.query.order_by(Pin.created_at.desc()).all()
-    data = []
-    for r in rows:
-        data.append({
-            "id": r.id, "pin": r.pin, "note": r.note, "device_id": r.device_id,
-            "ip": r.ip, "revoked": r.revoked, "created_at": (r.created_at.isoformat() if r.created_at else None),
-            "assigned_at": (r.assigned_at.isoformat() if r.assigned_at else None)
-        })
-    return jsonify(data)
+      const del = document.createElement('button'); del.className='btn-small btn-muted'; del.style.marginLeft='8px'; del.innerText='Delete';
+      del.addEventListener('click', async ()=>{
+        const ok = confirm('Delete video "' + v.title + '" ?');
+        if(!ok) return;
+        del.disabled = true; showSpinnerOn(del);
+        try {
+          const rr = await apiFetch('/admin/delete_video', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ video_id: v.id })});
+          const jr = await safeParseJson(rr) || {};
+          if(rr.ok && jr.success){ await showMessage('Info','Deleted'); await loadVideos(); }
+          else { await showMessage('Error','Failed to delete: ' + (jr.error || jr.message || ('status ' + rr.status))); }
+        } catch(err){ console.error(err); await showMessage('Network','Network error while deleting video'); }
+        del.disabled = false; hideSpinnerOn(del);
+      });
+      td.appendChild(del);
 
-@app.route("/api/admin/revoke_pin", methods=["POST"])
-def api_admin_revoke_pin():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    data = request.get_json() or {}
-    pin_id = data.get("pin_id")
-    force = bool(data.get("force", False))
-    if not pin_id:
-        return jsonify({"success": False, "error": "missing_pin_id"}), 400
-    p = Pin.query.get(pin_id)
-    if not p:
-        return jsonify({"success": False, "error": "pin_not_found"}), 404
-    # If this is the protected ADMIN_PIN, require explicit confirmation (force:true)
-    if p.pin == ADMIN_PIN:
-        if not force:
-            return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To revoke the admin PIN, include {\"force\": true} in the request body."}), 409
-    p.revoked = True
-    db.session.add(p); db.session.commit()
-    return jsonify({"success": True})
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    });
 
-@app.route("/api/admin/delete_pin", methods=["POST"])
-def api_admin_delete_pin():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    data = request.get_json() or {}
-    pin_id = data.get("pin_id")
-    # force no longer used for deletion of admin pin; admin pin is protected
-    if not pin_id:
-        return jsonify({"success": False, "error": "missing_pin_id"}), 400
-    p = Pin.query.get(pin_id)
-    if not p:
-        return jsonify({"success": False, "error": "pin_not_found"}), 404
-    # PROTECT admin PIN from deletion completely (per your instruction)
-    if p.pin == ADMIN_PIN:
-        return jsonify({"success": False, "error": "admin_pin_protected", "message": "Admin PIN cannot be deleted."}), 409
+    table.appendChild(tbody);
+    videosArea.innerHTML = ''; videosArea.appendChild(table);
 
-    try:
-        # FIRST: remove any sessions referencing this pin (avoids FK constraint errors)
-        try:
-            Session.query.filter_by(pin_id=p.id).delete(synchronize_session=False)
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
-            # log and continue to attempt deletion of pin — but if session removal fails, return error
-            logger.exception("Failed to delete sessions for pin %s", p.id)
-            return jsonify({"success": False, "error": "delete_failed", "message": "Failed to remove sessions for pin."}), 500
+    table.querySelectorAll('th.sortable').forEach(th => {
+      th.onclick = ()=>{
+        const key = th.getAttribute('data-key');
+        if(videosState.sortKey === key) videosState.sortDir = -videosState.sortDir; else { videosState.sortKey = key; videosState.sortDir = -1; }
+        table.querySelectorAll('th.sortable .sort-ind').forEach(si => si.innerText = '');
+        const si = th.querySelector('.sort-ind'); si.innerText = videosState.sortDir === -1 ? '▼' : '▲';
+        renderVideos();
+      };
+    });
+  }
 
-        # Now safe to delete the pin record
-        db.session.delete(p)
-        db.session.commit()
-        return jsonify({"success": True})
-    except Exception as exc:
-        logger.exception("Failed to delete pin %s: %s", pin_id, exc)
-        db.session.rollback()
-        return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
+  async function loadPins(){
+    pinsArea.innerText = 'Loading pins...';
+    try {
+      const r = await apiFetch('/admin/pins');
+      if(!r.ok){
+        const jr = await safeParseJson(r);
+        pinsArea.innerHTML = `<div class="error">Failed to load pins: ${jr && jr.error ? jr.error : 'status ' + r.status}</div>`;
+        return;
+      }
+      const j = await r.json();
+      if(!Array.isArray(j)){ pinsArea.innerHTML = '<div class="error">Failed to load pins</div>'; return; }
+      window.latestPins = j;
+      renderPins();
+    } catch(e){ pinsArea.innerHTML = '<div class="error">Error loading pins</div>'; console.error('loadPins error', e); }
+  }
 
-@app.route("/api/admin/delete_video", methods=["POST"])
-def api_admin_delete_video():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    data = request.get_json() or {}
-    video_id = data.get("video_id")
-    if not video_id:
-        return jsonify({"success": False, "error": "missing_video_id"}), 400
-    v = Video.query.get(video_id)
-    if not v:
-        return jsonify({"success": False, "error": "video_not_found"}), 404
-    filename = v.filename
-    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    try:
-        db.session.delete(v)
-        db.session.commit()
-    except Exception as exc:
-        logger.exception("DB delete failed for video %s: %s", video_id, exc)
-        db.session.rollback()
-        return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-    except Exception as exc:
-        logger.exception("Failed to remove video file %s: %s", path, exc)
-        return jsonify({"success": True, "warning": "db_deleted_but_file_remove_failed", "message": str(exc)})
-    return jsonify({"success": True})
+  async function loadVideos(){
+    videosArea.innerText = 'Loading videos...';
+    try {
+      const r = await apiFetch('/videos');
+      if(!r.ok){
+        const jr = await safeParseJson(r);
+        videosArea.innerHTML = `<div class="error">Failed to load videos: ${jr && jr.error ? jr.error : 'status ' + r.status}</div>`;
+        return;
+      }
+      const j = await r.json();
+      if(!Array.isArray(j)){ videosArea.innerHTML = '<div class="error">Failed to load videos</div>'; return; }
+      window.latestVideos = j;
+      renderVideos();
+    } catch(e){ videosArea.innerHTML = '<div class="error">Error loading videos</div>'; console.error('loadVideos error', e); }
+  }
 
-# Admin file endpoints (upload/list/delete)
-@app.route("/api/admin/upload_file", methods=["POST"])
-def api_admin_upload_file():
-    if not admin_auth_ok(request):
-        return jsonify({"success": False, "error": "admin_auth_required"}), 403
-    title = request.form.get("title", "").strip()
-    f = request.files.get("file")
-    if not f or not title:
-        return jsonify({"success": False, "error": "missing_title_or_file"}), 400
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        f.save(path)
-        file_row = File(title=title, filename=safe_name, uploaded_at=now())
-        db.session.add(file_row)
-        db.session.commit()
-        return jsonify({"success": True, "file_id": file_row.id})
-    except Exception as exc:
-        logger.exception("upload_file failed: %s", exc)
-        db.session.rollback()
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "upload_failed", "message": str(exc)}), 500
+  btnGenerate.addEventListener('click', async ()=>{
+    const note = (noteInput.value || '').slice(0,200);
+    generateResult.innerText = 'Generating...';
+    btnGenerate.disabled = true; showSpinnerOn(btnGenerate);
+    try {
+      const r = await apiFetch('/admin/generate_pin', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ note })
+      });
+      const j = await safeParseJson(r) || {};
+      if(r.ok && j.success){
+        generateResult.innerText = 'New PIN: ' + j.pin;
+        noteInput.value=''; await loadPins(); await showMessage('New PIN','New PIN: ' + j.pin);
+      } else {
+        generateResult.innerText = 'Error: ' + (j.error || j.message || ('status ' + r.status));
+        await showMessage('Error','Failed to generate PIN: ' + (j.error || j.message || ('status ' + r.status)));
+      }
+    } catch(e){ generateResult.innerText='Network error'; console.error('generate_pin error', e); await showMessage('Network','Network error'); }
+    btnGenerate.disabled = false; hideSpinnerOn(btnGenerate);
+  });
 
-@app.route("/api/files")
-def api_files():
-    rows = File.query.order_by(File.uploaded_at.desc()).all()
-    data = [{"id": r.id, "title": r.title, "filename": r.filename, "uploaded_at": (r.uploaded_at.isoformat() if r.uploaded_at else None)} for r in rows]
-    return jsonify(data)
+  // chunked upload helper (unchanged behavior)
+  async function uploadLargeFile(file, title, onProgress = null){
+    const CHUNK_SIZE = 8 * 1024 * 1024;
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
 
-@app.route("/view/file/<int:file_id>")
-def view_file(file_id):
-    frow = File.query.get(file_id)
-    if not frow:
-        return "Not found", 404
-    filename = frow.filename
-    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    if not os.path.exists(file_path):
-        return "File missing", 404
-    resp = make_response(send_from_directory(app.config["UPLOAD_FOLDER"], filename))
-    resp.headers["Content-Disposition"] = f'inline; filename="{filename}"'
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    return resp
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min((i + 1) * CHUNK_SIZE, file.size);
+      const blob = file.slice(start, end);
 
-# -------------- API: Payment (keep record but do not attempt SMTP sending) ------------
-@app.route("/api/payment/proof", methods=["POST"])
-def api_payment_proof():
-    name = request.form.get("name", "")
-    email = request.form.get("email", "")
-    course_title = request.form.get("course_title", "")
-    f = request.files.get("proof")
-    if not name or not f:
-        return jsonify({"success": False, "error": "missing_fields"}), 400
+      const fd = new FormData();
+      fd.append('upload_id', uploadId);
+      fd.append('filename', file.name);
+      fd.append('chunk_index', i);
+      fd.append('total_chunks', totalChunks);
+      fd.append('chunk', blob, file.name);
 
-    # Save to uploads folder (same place as other content)
-    safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
-    try:
-        f.save(path)
-    except Exception as exc:
-        logger.exception("Failed to save proof file: %s", exc)
-        return jsonify({"success": False, "error": "save_failed", "message": str(exc)}), 500
+      const res = await apiFetch('/admin/upload_video_chunk', { method: 'POST', body: fd });
+      if (!res.ok) {
+        let errJson = {};
+        try { errJson = await res.json(); } catch(e){}
+        throw new Error('Chunk upload failed: ' + (errJson.error || res.status));
+      }
+      const jr = await res.json();
+      if (!jr.success) throw new Error('Chunk save failed: ' + (jr.error || JSON.stringify(jr)));
 
-    # store payment record
-    try:
-        pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
-        db.session.add(pay)
-        db.session.commit()
-    except Exception as exc:
-        logger.exception("Failed to save payment record: %s", exc)
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except Exception:
-            pass
-        return jsonify({"success": False, "error": "db_failed", "message": str(exc)}), 500
+      if (typeof onProgress === 'function') {
+        onProgress({ uploadedChunks: i + 1, totalChunks });
+      }
+    }
 
-    return jsonify({"success": True})
+    const finishRes = await apiFetch('/admin/finish_video_upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ upload_id: uploadId, filename: file.name, title })
+    });
+    if (!finishRes.ok) {
+      let errJson = {};
+      try { errJson = await finishRes.json(); } catch(e){}
+      throw new Error('Finalize failed: ' + (errJson.error || finishRes.status));
+    }
+    const finishJson = await finishRes.json();
+    if (!finishJson.success) throw new Error('Finalize failed: ' + (finishJson.error || JSON.stringify(finishJson)));
+    return finishJson;
+  }
 
-# -------------- Health -------------------
-@app.route("/api/health")
-def health():
-    try:
-        db.session.execute("SELECT 1")
-        return jsonify({"ok": True})
-    except Exception as e:
-        logger.exception("Health check failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
+  btnUpload.addEventListener('click', async ()=>{
+    const title = (videoTitle.value || '').trim(); const file = videoFile.files[0];
+    if(!title || !file){ uploadResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }
+    uploadResult.innerText='Uploading...'; btnUpload.disabled=true; showSpinnerOn(btnUpload);
+    try {
+      const SINGLE_UPLOAD_LIMIT = 100 * 1024 * 1024;
+      if (file.size <= SINGLE_UPLOAD_LIMIT) {
+        const fd = new FormData(); fd.append('title', title); fd.append('video', file);
+        const r = await apiFetch('/admin/upload_video', { method:'POST', body: fd });
+        if (r.status === 413) {
+          uploadResult.innerText = 'Server rejected single upload. Switching to chunked upload...';
+          const result = await uploadLargeFile(file, title, (p)=> {
+            uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
+          });
+          uploadResult.innerText = 'Uploaded ✓';
+          videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
+        } else {
+          const j = await safeParseJson(r) || {};
+          if (r.ok && j.success) {
+            uploadResult.innerText='Uploaded ✓'; videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully.');
+          } else if (j && (j.error === 'file_too_large_for_single_request' || j.error === 'file_too_large')) {
+            uploadResult.innerText = 'Server asks for chunked upload. Uploading in chunks...';
+            const result = await uploadLargeFile(file, title, (p)=> {
+              uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
+            });
+            uploadResult.innerText = 'Uploaded ✓';
+            videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
+          } else {
+            uploadResult.innerText='Upload failed: ' + (j.error||j.message||'server'); await showMessage('Error','Upload failed: ' + (j.error||j.message||'server'));
+          }
+        }
+      } else {
+        uploadResult.innerText = 'Uploading in chunks...';
+        const result = await uploadLargeFile(file, title, (p)=> {
+          uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
+        });
+        uploadResult.innerText = 'Uploaded ✓';
+        videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
+      }
+    } catch(e){
+      console.error('upload_video error', e);
+      uploadResult.innerText='Upload failed: ' + (e && e.message ? e.message : '');
+      await showMessage('Upload error', (e && e.message) ? e.message : 'Network error while uploading video');
+    }
+    btnUpload.disabled=false; hideSpinnerOn(btnUpload);
+  });
 
-# --------------- Run ---------------------
-if __name__ == "__main__":
-    debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+  btnUploadFile.addEventListener('click', async ()=>{
+    const title = (fileTitle.value||'').trim(); const file = anyFile.files[0];
+    if(!title || !file){ uploadFileResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }
+    uploadFileResult.innerText='Uploading...'; btnUploadFile.disabled=true; showSpinnerOn(btnUploadFile);
+    try {
+      const fd = new FormData(); fd.append('title', title); fd.append('file', file);
+      const r = await apiFetch('/admin/upload_file', { method:'POST', body: fd });
+      if(r.status === 413){
+        uploadFileResult.innerText = 'File too large for server. Please reduce file size.';
+        await showMessage('File too large','The server rejected the upload because the file is too large (HTTP 413). Reduce the file size.');
+      } else {
+        const j = await safeParseJson(r) || {};
+        if(r.ok && j.success){ uploadFileResult.innerText='Uploaded ✓'; fileTitle.value=''; anyFile.value=''; await loadVideos(); await showMessage('Uploaded','File uploaded successfully.'); }
+        else { uploadFileResult.innerText='Upload failed: ' + (j.error||j.message||('status ' + r.status)); await showMessage('Error','Upload failed: ' + (j.error||j.message||('status ' + r.status))); }
+      }
+    } catch(e){ uploadFileResult.innerText='Network error'; console.error('upload_file error', e); await showMessage('Network','Network error while uploading file'); }
+    btnUploadFile.disabled=false; hideSpinnerOn(btnUploadFile);
+  });
+
+  btnRefresh.addEventListener('click', ()=>{ loadPins(); loadVideos(); });
+
+  btnLogout.addEventListener('click', async ()=>{
+    const ok = confirm('Logout admin?'); if(!ok) return;
+    try { await apiFetch('/logout', { method:'POST' }); } catch(e){ console.error('logout error', e); }
+    sessionStorage.removeItem('training_is_admin'); window.location.href = UI_BASE + '/';
+  });
+
+  pinsSearch.addEventListener('input', ()=> renderPins());
+  videosSearch.addEventListener('input', ()=> renderVideos());
+
+  await loadPins(); await loadVideos();
+
+})();
+</script>
+</body>
+</html>
