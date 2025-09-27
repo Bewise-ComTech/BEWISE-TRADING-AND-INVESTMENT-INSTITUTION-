@@ -4,6 +4,10 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Courses — Crypto Training</title>
 <link rel="icon" href=" https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg  ">
+
+<!-- add hls.js -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.3/dist/hls.min.js"></script>
+
 <style>
   body{font-family:system-ui;margin:0;background:linear-gradient(180deg,#031025,#071024);color:#e6eef8}
   header{
@@ -71,20 +75,16 @@
 
   <!-- Top-right button -->
   <div class="header-actions">
-
     <button id="topHelpBtn" class="top-btn secondary" aria-label="Help">Need Help?</button>
   </div>
 </header>
 
 <div class="wrap">
   <p class="intro">Watch course videos below. We do our best to prevent downloads; however, screen capture protection is limited in web browsers. If you experience playback issues, re-login from the main page.</p>
-
-
-  </div>
-
-  <!-- Grid of videos -->
-  <div id="grid" class="grid" aria-live="polite"></div>
 </div>
+
+<!-- Grid of videos -->
+<div id="grid" class="grid" aria-live="polite"></div>
 
 <!-- Modal (used instead of alerts) -->
 <div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
@@ -241,15 +241,35 @@
       vid.controls = true;
       vid.setAttribute('controlsList','nodownload nofullscreen noremoteplayback');
       vid.preload = 'metadata';
-      vid.setAttribute('playsinline', ''); // help mobile playback
-      // ensure browser sends cookies for the media requests (needed when backend requires session cookie)
-      try { vid.crossOrigin = 'use-credentials'; } catch(e) { /* ignore if not supported */ }
+      // ensure inline on mobile
+      vid.setAttribute('playsinline', '');
+      // ensure browser attempts to send cookies on media fetches
+      try { vid.crossOrigin = 'use-credentials'; } catch(e) {}
 
-      // keep original stream path in data attribute (for fallback)
-      const streamPath = ORIGIN_BASE + '/stream/' + v.id;
+      // Prefer HLS playlist
+      const streamPath = ORIGIN_BASE + '/hls/' + v.id + '/index.m3u8';
       vid.setAttribute('data-src', streamPath);
-      // video source: absolute stream route from backend so cookies and CORS behave correctly
-      vid.src = streamPath;
+
+      // Use hls.js when supported to load the m3u8 with credentials
+      if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls({
+          xhrSetup: function(xhr, url) {
+            xhr.withCredentials = true; // include cookies for segment requests
+          }
+        });
+        try {
+          hls.loadSource(streamPath);
+          hls.attachMedia(vid);
+          vid._hls = hls;
+        } catch (err) {
+          console.warn('hls.js attach failed:', err);
+          // fallback: point video.src to streamPath - may work in some browsers natively
+          vid.src = streamPath;
+        }
+      } else {
+        // Native HLS (e.g., iOS Safari) - assign src directly
+        vid.src = streamPath;
+      }
 
       // on play verify session is still active (same as before)
       vid.addEventListener('play', async function onPlay(){
@@ -273,7 +293,9 @@
         if(triedFallback) return;
         triedFallback = true;
         await showMessage('Playback issue','Automatic retry: attempting alternative playback method (may take a few seconds). After the retry completes, press Play again.');
-        const ok = await fetchVideoBlobToSrc(vid, streamPath);
+        // Try fetching direct stream (original /stream/<id>) as blob fallback too (keeps compatibility)
+        const fallbackStream = ORIGIN_BASE + '/stream/' + v.id;
+        const ok = await fetchVideoBlobToSrc(vid, fallbackStream);
         if(!ok){
           await showMessage('Playback failed','Unable to play this video. Try re-logging or contact admin.');
         }
