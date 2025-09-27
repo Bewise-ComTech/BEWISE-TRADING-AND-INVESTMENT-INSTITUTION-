@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Login — Crypto Training</title>
+<link rel="icon" href="/logo.png">
+<style>
+  :root{ --bg:#071024; --card:#062035; --accent:#06b6d4; --danger:#ef4444; --text:#e6eef8; }
+  body{ margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg,#031025,#071024); color:var(--text); font-family:system-ui,Segoe UI,Roboto,Arial; }
+  .card{ width:92vw; max-width:420px; background:linear-gradient(180deg,#071a2b,#041324); border-radius:12px; padding:20px; box-shadow:0 8px 30px rgba(2,6,23,0.6); }
+  .logo{ display:block; margin:4px auto 12px; width:120px; height:auto }
+  h1{ text-align:center; margin:4px 0 8px; font-size:20px; }
+  .pin{ width:100%; padding:12px 14px; font-size:20px; border-radius:10px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:var(--text); text-align:center; letter-spacing:6px }
+  button{ width:100%; margin-top:12px; padding:12px; border-radius:10px; border:0; background:var(--accent); color:#042a2b; font-weight:800; cursor:pointer; font-size:16px }
+  .msg{ margin-top:12px; text-align:center; font-size:14px; color:rgba(230,238,248,0.9) }
+  .small{ margin-top:8px; font-size:12px; opacity:0.85; text-align:center }
+  a.link{ color:#9be7ff; text-decoration:none }
+  .fp { font-family:monospace; word-break:break-all; font-size:11px; background:#02121a; padding:8px; border-radius:8px; margin-top:10px; display:none; color:#9be7ff }
+
+  /* Invisible overlay that blocks UI while backend is down.
+     It's visually transparent (opacity:0), but when active it prevents interactions.
+     We keep it accessible-dark (aria-hidden true when hidden).
+  */
+  #invisibleOverlay {
+    display:none;          /* hidden by default */
+    position:fixed;
+    inset:0;
+    background: rgba(0,0,0,0); /* fully transparent */
+    z-index: 99999;
+    /* pointer-events toggled by JS to block interactions when shown */
+  }
+
+  /* subtle inline spinner (kept visually hidden by default) */
+  .spinner {
+    display:none;
+    position: absolute;
+    left: 50%; top: 14px;
+    transform: translateX(-50%);
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.08);
+    border-top-color: var(--accent);
+    animation: spin 1s linear infinite;
+    z-index:100000;
+  }
+  .spinner.visible { display:block; }
+
+  @keyframes spin { to { transform: translateX(-50%) rotate(360deg); } }
+
+  /* message colors for inline feedback */
+  .msg.ok { color: #9ff4c6; }
+  .msg.err { color: #ffb4b4; }
+
+  /* keep page responsive */
+  @media (max-width:520px){
+    .card{ padding:16px; }
+    .logo{ width:100px; }
+  }
+</style>
+</head>
+<body>
+  <div class="spinner" id="spinner" aria-hidden="true"></div>
+
+  <!-- Invisible overlay; when backend unreachable we show it (opacity stays 0 so users don't see a message).
+       It blocks interaction until backend is reachable again. -->
+  <div id="invisibleOverlay" aria-hidden="true"></div>
+
+  <div class="card" role="main" aria-labelledby="title">
+    <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" alt="logo" class="logo" onerror="this.style.display='none'">
+    <h1 id="title">Enter 6-digit PIN</h1>
+    <input id="pin" class="pin" maxlength="6" inputmode="numeric" pattern="\d{6}" placeholder="●●●●●●" autocomplete="one-time-code" aria-label="6-digit PIN">
+    <button id="btn" aria-live="polite">Login</button>
+    <div class="msg" id="msg">PIN is single-device. If used elsewhere it will be revoked.</div>
+    <div class="small">Don't have a PIN? <a class="link" href="/payment">Buy course / Payment</a></div>
+    <div class="fp" id="fpBox" title="Device fingerprint (for server lock)"></div>
+  </div>
+
+<script>
+(async function(){
+  // Configuration for where backend lives (keeps your original behavior)
+  const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';
+  const RENDER_BASE = 'https://' + RENDER_HOST;
+  const RENDER_API = RENDER_BASE + '/api';
+  const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_API;
+  const UI_BASE = (location.hostname === RENDER_HOST) ? '' : RENDER_BASE;
+
+  // UI refs
+  const pinInput = document.getElementById('pin');
+  const btn = document.getElementById('btn');
+  const msgEl = document.getElementById('msg');
+  const fpBox = document.getElementById('fpBox');
+  const overlay = document.getElementById('invisibleOverlay');
+  const spinner = document.getElementById('spinner');
+
+  // small helper to show inline messages (no alerts)
+  function showMsg(text, isErr){
+    msgEl.textContent = text;
+    msgEl.classList.toggle('err', !!isErr);
+    msgEl.classList.toggle('ok', !isErr);
+  }
+
+  // Fingerprint calculation (same as before)
+  async function computeFingerprint(){
+    try {
+      let uuid = localStorage.getItem('training_device_uuid');
+      if(!uuid){
+        uuid = crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2));
+        localStorage.setItem('training_device_uuid', uuid);
+      }
+      const parts = [
+        navigator.userAgent || '',
+        navigator.platform || '',
+        (navigator.languages || []).join(','),
+        screen.width + 'x' + screen.height + 'x' + screen.colorDepth,
+        Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+        uuid
+      ].join('||');
+      const enc = new TextEncoder().encode(parts);
+      const hashBuf = await crypto.subtle.digest('SHA-256', enc);
+      return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    } catch(e){
+      return localStorage.getItem('training_device_uuid') || 'local-fallback';
+    }
+  }
+
+  // Abortable fetch utility with timeout
+  async function fetchWithTimeout(url, opts={}, timeoutMs=7000){
+    const controller = new AbortController();
+    const id = setTimeout(()=> controller.abort(), timeoutMs);
+    try {
+      const r = await fetch(url, { ...opts, signal: controller.signal });
+      clearTimeout(id);
+      return r;
+    } finally {
+      clearTimeout(id);
+    }
+  }
+
+  // show/hide invisible overlay that blocks UI (keeps it visually transparent)
+  function setBlockingOverlay(on){
+    if(on){
+      overlay.style.display = 'block';
+      overlay.style.pointerEvents = 'auto';
+      overlay.setAttribute('aria-hidden','false');
+      // option: start small spinner to indicate background activity (kept unobtrusive)
+      spinner.classList.add('visible');
+      spinner.setAttribute('aria-hidden','true'); // not verbose
+    } else {
+      overlay.style.display = 'none';
+      overlay.style.pointerEvents = 'none';
+      overlay.setAttribute('aria-hidden','true');
+      spinner.classList.remove('visible');
+    }
+  }
+
+  // Poll backend until it responds successfully (used when backend unreachable).
+  // Returns when /api/check_session responds (could be logged_in true/false).
+  function startBackendPoll(intervalMs = 4000){
+    // If already polling, ignore
+    if(window.__backendPolling) return;
+    window.__backendPolling = true;
+    setBlockingOverlay(true);
+    const poll = async ()=>{
+      try {
+        const r = await fetchWithTimeout(API + '/check_session', { credentials: 'include' }, 6000);
+        if(!r) return;
+        if(r.ok){
+          // backend responded; stop polling
+          window.__backendPolling = false;
+          setBlockingOverlay(false);
+          // check session result and redirect if already logged_in
+          try {
+            const j = await r.json();
+            if(j && j.logged_in){
+              // behave like original logic: redirect to admin or dashboard
+              const redirectTo = j.is_admin ? (UI_BASE + '/admin') : (UI_BASE + '/dashboard');
+              location.href = redirectTo;
+              return;
+            }
+            // otherwise keep page visible (user can log in)
+          } catch(e){
+            // continue silently
+          }
+          return;
+        }
+      } catch(e){
+        // still down; ignore and wait
+      }
+      // schedule next poll if still polling
+      if(window.__backendPolling) setTimeout(poll, intervalMs);
+    };
+    // start first poll immediately
+    setTimeout(poll, 200);
+  }
+
+  // checkSessionOnLoad: try once quickly; if network fails, start poll quietly (no alert)
+  async function checkSessionOnLoad(){
+    try {
+      const r = await fetchWithTimeout(API + '/check_session', { credentials:'include' }, 5000);
+      if(!r.ok){
+        // If 5xx or other server response, we do not immediately poll; show overlay only for network errors.
+        // But if server responded non-OK, we allow page to continue so user can login.
+        return null;
+      }
+      return await r.json();
+    } catch(e){
+      // likely network error / backend sleeping -> start polling and block UI invisibly
+      startBackendPoll();
+      return null;
+    }
+  }
+
+  // compute fingerprint and display it (kept but hidden by default)
+  const fp = await computeFingerprint();
+  fpBox.textContent = fp;
+
+  // on load check session
+  const existing = await checkSessionOnLoad();
+  if(existing && existing.logged_in){
+    if(existing.is_admin){ sessionStorage.setItem('training_is_admin','1'); location.replace(UI_BASE + '/admin'); }
+    else location.replace(UI_BASE + '/dashboard');
+    return;
+  }
+
+  // helper: validate pin format
+  function validPin(v){ return /^\d{6}$/.test(v); }
+
+  // Attach UI event listeners (Enter key + button)
+  btn.addEventListener('click', login);
+  pinInput.addEventListener('keydown', (e) => { if(e.key === 'Enter') login(); });
+
+  // login function (keeps your original logic, but uses inline messages instead of alerts;
+  // if network error occurs we enable invisible overlay and start polling.)
+  async function login(){
+    const pin = (pinInput.value || '').trim();
+    if(!validPin(pin)){ showMsg('Enter a valid 6-digit PIN', true); return; }
+    showMsg('Logging in...');
+    btn.disabled = true;
+    try {
+      const payload = { pin: pin, device_id: fp };
+      const res = await fetchWithTimeout(API + '/login', {
+        method: 'POST',
+        headers: { 'Content-Type':'application/json' },
+        body: JSON.stringify(payload),
+        credentials: 'include'
+      }, 9000);
+
+      if(!res){
+        // timeout or network error
+        showMsg('Network error — waiting for backend...', true);
+        // start invisible poll and block UI quietly
+        startBackendPoll();
+        return;
+      }
+
+      const txt = await res.text();
+      let json = null;
+      try { json = JSON.parse(txt); } catch(e){ json = { success:false, error:'invalid_response', raw:txt }; }
+
+      if(!res.ok || !json.success){
+        const err = json.error || json.message || 'Login failed';
+        if(json.error === 'revoked_due_to_multiple_devices'){
+          showMsg('PIN revoked — it was used on another device.', true);
+        } else if(json.error === 'pin_revoked'){
+          showMsg('This PIN has been revoked.', true);
+        } else if(json.error === 'pin_not_found'){
+          showMsg('PIN not found. Buy access or contact admin.', true);
+        } else if(json.error === 'device_not_allowed'){
+          showMsg(json.message || 'Device not allowed', true);
+        } else {
+          showMsg(err, true);
+        }
+        btn.disabled = false;
+        return;
+      }
+
+      // success: set local state and redirect
+      const role = json.role || (pin === '811335' ? 'admin' : 'user');
+      if(role === 'admin'){ sessionStorage.setItem('training_is_admin','1'); }
+      else sessionStorage.removeItem('training_is_admin');
+      try { localStorage.setItem('training_allowed_device', fp); } catch(e){}
+
+      // show inline success message briefly then redirect
+      showMsg('Welcome — login successful.', false);
+      // small delay so user sees success
+      setTimeout(()=>{
+        if(role === 'admin') location.href = UI_BASE + '/admin';
+        else location.href = UI_BASE + '/dashboard';
+      }, 600);
+
+    } catch(err){
+      console.error(err);
+      // network or unexpected error: start invisible poll and block UI quietly
+      showMsg('Network error — waiting for backend...', true);
+      startBackendPoll();
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // Prevent overlay from being accidentally left enabled on navigation away
+  window.addEventListener('beforeunload', ()=> setBlockingOverlay(false));
+
+})();
+</script>
+</body>
+</html>
