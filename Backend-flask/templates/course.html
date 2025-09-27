@@ -10,7 +10,13 @@
 
 <style>
   body{font-family:system-ui;margin:0;background:linear-gradient(180deg,#031025,#071024);color:#e6eef8}
-  header{display:flex;align-items:center;gap:12px;padding:12px;background:linear-gradient(90deg,#06203a,#08304d);}
+  header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px;
+    background:linear-gradient(90deg,#06203a,#08304d);
+  }
   .brand{ display:flex; align-items:center; gap:12px; }
   .logo{height:36px}
   .wrap{padding:18px;max-width:1100px;margin:auto}
@@ -18,13 +24,48 @@
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
   .card{background:#062035;padding:12px;border-radius:12px;position:relative;overflow:hidden}
   video{width:100%;border-radius:8px;background:black;display:block;min-height:140px}
-  .muted { opacity:0.85; font-size:13px; }
+
+  /* top-right button styling */
+  .header-actions{ margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .top-btn{
+    padding:8px 12px;
+    border-radius:10px;
+    border:0;
+    cursor:pointer;
+    font-weight:800;
+    font-size:0.95rem;
+    background:linear-gradient(90deg,#06b6d4,#0891b2);
+    color:#042a2b;
+    box-shadow:0 8px 20px rgba(0,0,0,0.35);
+  }
+  .top-btn.secondary{ background:linear-gradient(90deg,#4ade80,#16a34a); color:#04210b; }
+
+  .muted { color:#bfefff; opacity:0.9; font-size:13px; margin-top:8px; }
+
+  .status { margin-top:8px; font-size:13px; color:#cfefff; opacity:0.95; }
+  .status.error { color:#ffb4b4; }
+  .status.note { color:#baf7ff; }
+
+  /* modal */
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(2,6,23,0.6); display:none; align-items:center; justify-content:center; z-index:9999; }
+  .modal-panel{ background:#0b1220; padding:18px; border-radius:10px; width:92%; max-width:520px; box-shadow:0 12px 40px rgba(0,0,0,0.6); color:#e6eef8 }
+  .modal-title{ font-weight:800; margin-bottom:8px; font-size:1.05rem }
+  .modal-body{ margin-bottom:12px; color:#cfefff; line-height:1.3 }
+  .modal-actions{ display:flex; gap:8px; justify-content:flex-end; }
+  .btn-secondary{ background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfefff; padding:8px 10px; border-radius:8px; cursor:pointer }
+  .btn-primary{ background:linear-gradient(90deg,#06b6d4,#0891b2); color:#042a2b; padding:8px 12px; border-radius:8px; font-weight:800; cursor:pointer }
+
+  /* play/pause controls */
   .vp-controls { display:flex; gap:8px; margin-top:8px; align-items:center; }
   .vp-btn { padding:8px 12px; border-radius:8px; border:0; cursor:pointer; font-weight:700; background:#06b6d4; color:#042a2b; }
   .vp-btn.pause { background:#ef4444; color:#fff; }
-  .err-block { background:#071424; padding:12px; border-radius:8px; margin-top:10px; color:#ffd0d0; }
-  .btn-ghost { background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfefff; padding:6px 8px; border-radius:6px; cursor:pointer; }
-  @media (max-width:720px){ .card{ padding:10px } }
+
+  .card-footer { display:flex; justify-content:space-between; align-items:center; margin-top:8px; gap:10px; flex-wrap:wrap; }
+
+  @media (max-width:720px){
+    .encourage-wrap{ grid-template-columns: 1fr; }
+    .encourage-img{ width:100%; height:180px; }
+  }
 </style>
 </head>
 <body>
@@ -33,8 +74,10 @@
     <img src=" https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" class="logo" alt="logo">
     <div style="font-weight:700">Courses</div>
   </div>
-  <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
-    <button id="topHelpBtn" class="vp-btn" aria-label="Help">Need Help?</button>
+
+  <!-- Top-right button -->
+  <div class="header-actions">
+    <button id="topHelpBtn" class="top-btn secondary" aria-label="Help">Need Help?</button>
   </div>
 </header>
 
@@ -42,120 +85,375 @@
   <p class="intro">Watch course videos below. We do our best to prevent downloads; however, screen capture protection is limited in web browsers. If you experience playback issues, re-login from the main page.</p>
 </div>
 
+<!-- Grid of videos -->
 <div id="grid" class="grid" aria-live="polite"></div>
 
-<!-- Modal -->
-<div id="modalBackdrop" style="display:none;position:fixed;inset:0;background:rgba(2,6,23,0.6);align-items:center;justify-content:center;z-index:9999;">
-  <div style="background:#0b1220;padding:18px;border-radius:10px;width:92%;max-width:520px;color:#e6eef8">
-    <div id="modalTitle" style="font-weight:800;margin-bottom:8px">Title</div>
-    <div id="modalBody" style="margin-bottom:12px"></div>
-    <div style="text-align:right"><button id="modalOk" class="btn-ghost">OK</button></div>
+<!-- Modal (used for re-login & critical notifications only) -->
+<div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
+  <div class="modal-panel" role="document" aria-live="polite" aria-modal="true">
+    <div class="modal-title" id="modalTitle">Title</div>
+    <div class="modal-body" id="modalBody">Message</div>
+    <div class="modal-actions" id="modalActions">
+      <button class="btn-secondary" id="modalCancel">Cancel</button>
+      <button class="btn-primary" id="modalOk">OK</button>
+    </div>
   </div>
 </div>
 
 <script>
 (async function(){
-  // small modal utils
-  const modalBackdrop = document.getElementById('modalBackdrop');
-  const modalTitle = document.getElementById('modalTitle');
-  const modalBody = document.getElementById('modalBody');
-  const modalOk = document.getElementById('modalOk');
-  function showModal(title, msg){
-    modalTitle.innerText = title || '';
-    modalBody.innerText = msg || '';
-    modalBackdrop.style.display = 'flex';
-    return new Promise(res => { modalOk.onclick = ()=>{ modalBackdrop.style.display='none'; res(true); }; });
+  // Modal utilities (used only for re-login or critical notifications)
+  const backdrop = document.getElementById('modalBackdrop');
+  const titleEl = document.getElementById('modalTitle');
+  const bodyEl = document.getElementById('modalBody');
+  const okBtn = document.getElementById('modalOk');
+  const cancelBtn = document.getElementById('modalCancel');
+
+  function showModal(title, message, { showCancel=false, okText='OK', cancelText='Cancel' } = {}){
+    titleEl.innerText = title || '';
+    bodyEl.innerText = message || '';
+    okBtn.innerText = okText;
+    cancelBtn.innerText = cancelText;
+    cancelBtn.style.display = showCancel ? 'inline-block' : 'none';
+    backdrop.style.display = 'flex';
+    backdrop.setAttribute('aria-hidden','false');
+    return new Promise(resolve=>{
+      function cleanup(){ okBtn.removeEventListener('click', onOk); cancelBtn.removeEventListener('click', onCancel); backdrop.style.display='none'; backdrop.setAttribute('aria-hidden','true'); }
+      function onOk(){ cleanup(); resolve(true); }
+      function onCancel(){ cleanup(); resolve(false); }
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+    });
   }
 
-  // check session up front
-  try {
-    const chk = await (await fetch('/api/check_session', { credentials: 'include' })).json();
-    if(!chk.logged_in){ await showModal('Login', 'Please login to access course videos. Redirecting.'); location.href='/'; return; }
-  } catch(e){
-    console.error('session check failed', e);
+  // compute fingerprint and optional local lock check (unchanged)
+  async function computeFP(){
+    let uuid = localStorage.getItem('training_device_uuid');
+    if(!uuid){ uuid = crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2)); localStorage.setItem('training_device_uuid', uuid); }
+    const data = [navigator.userAgent||'', navigator.platform||'', (navigator.languages||[]).join(','), screen.width+'x'+screen.height+'x'+screen.colorDepth, Intl.DateTimeFormat().resolvedOptions().timeZone||'', uuid].join('||');
+    const enc = new TextEncoder().encode(data);
+    const hashBuf = await crypto.subtle.digest('SHA-256', enc);
+    return Array.from(new Uint8Array(hashBuf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+
+  const fp = await computeFP();
+  const allowed = localStorage.getItem('training_allowed_device');
+  if(allowed && allowed !== fp){
+    await showModal('Device locked','This installation is locked to another device. Please login from the registered device or contact admin.');
+    location.href='/'; return;
+  }
+
+  // ensure session active on page load (unchanged)
+  try{
+    const chk = await (await fetch('/api/check_session', {credentials:'include'})).json();
+    if(!chk.logged_in){ location.href='/'; return; }
+  }catch(e){
+    console.error('check_session failed',e);
     await showModal('Error','Unable to verify session. Redirecting to login.'); location.href='/'; return;
   }
 
-  // helper: safe json
-  async function safeJson(url, opts){
-    try {
-      const r = await fetch(url, opts);
-      if(!r.ok) return { ok:false, status:r.status };
-      const j = await r.json();
-      return { ok:true, body:j };
-    } catch(e){ return { ok:false, error:e }; }
-  }
+  // helper to fetch JSON safely
+  async function safeJson(url, opts){ try { const r = await fetch(url, opts); if(!r.ok){ return {ok:false,status:r.status}; } const j = await r.json(); return {ok:true,body:j}; } catch(e){ return {ok:false,error:e}; } }
 
+  // UI refs
   const grid = document.getElementById('grid');
-  const ORIGIN = location.origin;
+  const topHelpBtn = document.getElementById('topHelpBtn');
 
-  // fetch videos
-  const videosRes = await safeJson('/api/videos', { credentials: 'include' });
-  const videos = (videosRes.ok && Array.isArray(videosRes.body)) ? videosRes.body : [];
+  // track blob URLs to revoke later
+  const createdObjectUrls = new Set();
 
-  // track blob URLs
-  const blobUrls = new Set();
-  window.addEventListener('beforeunload', ()=> { for(const u of blobUrls) try{ URL.revokeObjectURL(u); }catch(e){} });
-
-  function createControls(videoEl){
-    const wrapper = document.createElement('div'); wrapper.className='vp-controls';
-    const play = document.createElement('button'); play.className='vp-btn'; play.textContent='Play';
-    const pause = document.createElement('button'); pause.className='vp-btn pause'; pause.textContent='Pause'; pause.style.display='none';
-    play.onclick = async ()=> {
-      try { await videoEl.play(); } catch(err){
-        console.warn('play() failed, attempting fallback', err);
-        await showModal('Playback issue','Attempting an alternative playback method. After the retry completes, press Play again.');
-        // fallback will have already been wired on error handler — so user can press play again
+  // fetch /stream/<id> as blob fallback (with credentials)
+  async function fetchStreamAsBlob(videoEl, streamUrl){
+    try {
+      const r = await fetch(streamUrl, { credentials: 'include' });
+      if(r.status === 401){
+        return { ok:false, status:401 };
       }
-    };
-    pause.onclick = ()=> { try{ videoEl.pause(); }catch(e){} };
-    videoEl.addEventListener('play', ()=>{ play.style.display='none'; pause.style.display='inline-block'; });
-    videoEl.addEventListener('pause', ()=>{ pause.style.display='none'; play.style.display='inline-block'; });
-    wrapper.appendChild(play); wrapper.appendChild(pause);
-    return wrapper;
+      if(!r.ok) return { ok:false, status:r.status };
+      const contentType = r.headers.get('Content-Type') || 'video/mp4';
+      const blob = await r.blob();
+      const url = URL.createObjectURL(new Blob([blob], { type: contentType }));
+      createdObjectUrls.add(url);
+      videoEl.src = url;
+      return { ok:true };
+    } catch(err){
+      console.error('fetchStreamAsBlob failed', err);
+      return { ok:false, error:err };
+    }
   }
 
-  async function tryFetchPlaylist(video_id){
-    const url = ORIGIN + '/hls/' + video_id + '/index.m3u8';
+  // helper: check if playlist exists (HEAD or GET)
+  async function checkPlaylist(url){
     try {
-      const r = await fetch(url, { method: 'GET', credentials: 'include' });
+      const r = await fetch(url, { method:'GET', credentials:'include' });
       return r;
-    } catch(err){
-      console.error('playlist fetch failed', err);
+    } catch (err) {
+      console.error('checkPlaylist fetch failed', err);
       return { ok:false, status:0 };
     }
   }
 
-  async function fetchStreamAsBlob(videoEl, streamUrl){
-    // attempt to fetch /stream/<id> as blob with cookies
-    try {
-      const r = await fetch(streamUrl, { credentials: 'include' });
-      if(r.status === 401){
-        // session issue
-        return { ok:false, status:401 };
+  // main rendering and playback logic
+  async function loadVideos(){
+    const res = await safeJson('/api/videos', { credentials: 'include' });
+    if(res.ok && Array.isArray(res.body)) return res.body;
+    return [];
+  }
+
+  function createControls(videoEl){
+    const wrapper = document.createElement('div');
+    wrapper.className = 'vp-controls';
+
+    const playBtn = document.createElement('button');
+    playBtn.className = 'vp-btn play';
+    playBtn.type = 'button';
+    playBtn.innerText = 'Play';
+
+    const pauseBtn = document.createElement('button');
+    pauseBtn.className = 'vp-btn pause';
+    pauseBtn.type = 'button';
+    pauseBtn.innerText = 'Pause';
+    pauseBtn.style.display = 'none';
+
+    playBtn.addEventListener('click', async ()=>{
+      // intercept play: attempt controlled playback flow
+      try {
+        await attemptPlayback(videoEl);
+      } catch(err){
+        console.error('attemptPlayback threw', err);
       }
-      if(!r.ok) return { ok:false, status:r.status };
-      const ct = r.headers.get('Content-Type') || 'video/mp4';
-      const blob = await r.blob();
-      const url = URL.createObjectURL(new Blob([blob], { type: ct }));
-      blobUrls.add(url);
-      videoEl.src = url;
-      return { ok:true };
+    });
+
+    pauseBtn.addEventListener('click', ()=>{
+      try { videoEl.pause(); } catch(e){ /* ignore */ }
+    });
+
+    // update button visibility on play/pause events
+    videoEl.addEventListener('play', ()=>{ playBtn.style.display='none'; pauseBtn.style.display='inline-block'; });
+    videoEl.addEventListener('pause', ()=>{ pauseBtn.style.display='none'; playBtn.style.display='inline-block'; });
+    videoEl.addEventListener('ended', ()=>{ pauseBtn.style.display='none'; playBtn.style.display='inline-block'; });
+
+    wrapper.appendChild(playBtn);
+    wrapper.appendChild(pauseBtn);
+    return wrapper;
+  }
+
+  // attemptPlayback: robust flow that prefers HLS, falls back to /stream blob, shows inline status.
+  async function attemptPlayback(videoEl){
+    // Avoid re-running concurrently
+    if(videoEl._playingAttempt) return;
+    videoEl._playingAttempt = true;
+    const card = videoEl.closest('.card');
+    let statusEl = card.querySelector('.status');
+    if(!statusEl){
+      statusEl = document.createElement('div'); statusEl.className = 'status'; card.appendChild(statusEl);
+    }
+    statusEl.classList.remove('error','note'); statusEl.innerText = 'Checking session...';
+
+    // session check
+    try {
+      const r = await fetch('/api/check_session', { credentials: 'include' });
+      if(!r.ok){
+        statusEl.classList.add('error'); statusEl.innerText = 'Session check failed — please login.';
+        await showModal('Login required','Please login to watch this video.'); location.href='/'; return;
+      }
+      const j = await r.json();
+      if(!j.logged_in){
+        statusEl.classList.add('error'); statusEl.innerText = 'Not logged in — redirecting to login.';
+        await showModal('Login required','Please login to watch this video.'); location.href='/'; return;
+      }
     } catch(e){
-      console.error('fetchStreamAsBlob failed', e);
-      return { ok:false, error:e };
+      console.error('session check error', e);
+      statusEl.classList.add('error'); statusEl.innerText = 'Session check error — please re-login.';
+      await showModal('Session error','Unable to verify session. Redirecting to login.'); location.href='/'; return;
+    }
+
+    statusEl.classList.remove('error'); statusEl.classList.add('note'); statusEl.innerText = 'Preparing playback...';
+
+    const dataSrc = videoEl.getAttribute('data-src') || videoEl.src;
+    // HLS playlist URL
+    const playlistUrl = dataSrc; // in our page we set data-src to /hls/<id>/index.m3u8
+    const streamFallback = (playlistUrl && playlistUrl.includes('/hls/')) ? playlistUrl.replace('/hls/', '/stream/').replace('/index.m3u8','') : (videoEl.getAttribute('data-stream') || '');
+
+    // Try playlist existence
+    let plResp = await checkPlaylist(playlistUrl);
+    if(plResp && plResp.ok){
+      // Playlist exists -> prefer HLS
+      statusEl.innerText = 'Using HLS playback...';
+      // Use hls.js if supported
+      if(window.Hls && Hls.isSupported()){
+        // destroy previous hls if present
+        if(videoEl._hls){
+          try { videoEl._hls.destroy(); } catch(e){}
+          videoEl._hls = null;
+        }
+        const hls = new Hls({
+          xhrSetup: function(xhr, url) {
+            xhr.withCredentials = true;
+          }
+        });
+
+        let manifestLoaded = false;
+        let fatalErrorOccurred = false;
+
+        // attach error listener
+        hls.on(Hls.Events.ERROR, async (event, data) => {
+          console.warn('hls error', event, data);
+          if(fatalErrorOccurred) return;
+          if(data && data.fatal){
+            fatalErrorOccurred = true;
+            try { hls.destroy(); } catch(e){}
+            videoEl._hls = null;
+            statusEl.classList.add('error'); statusEl.innerText = 'HLS playback failed, trying fallback...';
+            // fallback to /stream/<id> blob
+            if(streamFallback){
+              const fetchRes = await fetchStreamAsBlob(videoEl, streamFallback);
+              if(fetchRes.ok){
+                statusEl.classList.remove('error'); statusEl.innerText = 'Playing (fallback).';
+                try { await videoEl.play(); } catch(e){ console.warn('play after blob fallback failed', e); }
+                videoEl._playingAttempt = false;
+                return;
+              } else {
+                if(fetchRes.status === 401){
+                  await showModal('Login required','Please login to watch videos.'); location.href='/'; return;
+                }
+                statusEl.classList.add('error'); statusEl.innerText = 'Playback failed (fallback). Contact admin.';
+                videoEl._playingAttempt = false;
+                return;
+              }
+            } else {
+              statusEl.classList.add('error'); statusEl.innerText = 'Playback fallback unavailable.';
+            }
+            videoEl._playingAttempt = false;
+          }
+        });
+
+        try {
+          hls.loadSource(playlistUrl);
+          hls.attachMedia(videoEl);
+          videoEl._hls = hls;
+          // Wait for manifest/level loaded then play
+          const manifestPromise = new Promise((resolve, reject) => {
+            const onManifest = () => { manifestLoaded = true; resolve(true); };
+            hls.on(Hls.Events.MANIFEST_PARSED, onManifest);
+            hls.on(Hls.Events.LEVEL_LOADED, onManifest);
+            // Give up after 10s
+            setTimeout(()=>{ if(!manifestLoaded) resolve(false); }, 10000);
+          });
+          const ok = await manifestPromise;
+          if(ok){
+            statusEl.classList.remove('error'); statusEl.innerText = 'Starting playback...';
+            try { await videoEl.play(); } catch(e){ console.warn('play() after HLS attach failed', e); }
+            videoEl._playingAttempt = false;
+            return;
+          } else {
+            // manifest didn't load, try blob fallback
+            try { hls.destroy(); } catch(e){} videoEl._hls = null;
+            statusEl.innerText = 'HLS manifest not responsive — trying fallback...';
+            if(streamFallback){
+              const fetchRes = await fetchStreamAsBlob(videoEl, streamFallback);
+              if(fetchRes.ok){
+                statusEl.classList.remove('error'); statusEl.innerText = 'Playing (fallback).';
+                try { await videoEl.play(); } catch(e){ console.warn('play after blob fallback failed', e); }
+                videoEl._playingAttempt = false;
+                return;
+              } else {
+                if(fetchRes.status === 401){
+                  await showModal('Login required','Please login to watch videos.'); location.href='/'; return;
+                }
+                statusEl.classList.add('error'); statusEl.innerText = 'Playback failed (fallback). Contact admin.';
+                videoEl._playingAttempt = false;
+                return;
+              }
+            } else {
+              statusEl.classList.add('error'); statusEl.innerText = 'No fallback stream available.';
+              videoEl._playingAttempt = false;
+              return;
+            }
+          }
+        } catch(e){
+          console.error('hls attach/loadSource error', e);
+          try { hls.destroy(); } catch(e){}
+          videoEl._hls = null;
+          statusEl.classList.add('error'); statusEl.innerText = 'HLS setup failed — trying fallback...';
+          if(streamFallback){
+            const fetchRes = await fetchStreamAsBlob(videoEl, streamFallback);
+            if(fetchRes.ok){
+              statusEl.classList.remove('error'); statusEl.innerText = 'Playing (fallback).';
+              try { await videoEl.play(); } catch(e){ console.warn('play after blob fallback failed', e); }
+              videoEl._playingAttempt = false;
+              return;
+            } else {
+              if(fetchRes.status === 401){
+                await showModal('Login required','Please login to watch videos.'); location.href='/'; return;
+              }
+              statusEl.classList.add('error'); statusEl.innerText = 'Playback failed (fallback). Contact admin.';
+              videoEl._playingAttempt = false;
+              return;
+            }
+          } else {
+            statusEl.classList.add('error'); statusEl.innerText = 'No fallback available.';
+            videoEl._playingAttempt = false;
+            return;
+          }
+        }
+      } else {
+        // Native HLS (Safari)
+        videoEl.src = playlistUrl;
+        // attempt to play (errors will trigger video 'error' listener below to fallback)
+        try { await videoEl.play(); } catch(e){ console.warn('native hls play failed', e); }
+        videoEl._playingAttempt = false;
+        return;
+      }
+    }
+
+    // If we reach here, playlist not found or not OK -> try /stream/<id> blob fallback
+    statusEl.innerText = 'HLS not available — trying direct stream...';
+    const fallbackUrl = streamFallback || (videoEl.getAttribute('data-stream') || '');
+    if(!fallbackUrl){
+      statusEl.classList.add('error'); statusEl.innerText = 'No playable source found.';
+      videoEl._playingAttempt = false;
+      return;
+    }
+    const fetchRes = await fetchStreamAsBlob(videoEl, fallbackUrl);
+    if(fetchRes.ok){
+      statusEl.classList.remove('error'); statusEl.innerText = 'Playing (direct stream).';
+      try{ await videoEl.play(); } catch(e){ console.warn('play after direct blob failed', e); }
+      videoEl._playingAttempt = false;
+      return;
+    } else {
+      if(fetchRes.status === 401){
+        await showModal('Login required','Please login to watch videos.'); location.href='/'; return;
+      }
+      if(fetchRes.status === 404){
+        statusEl.classList.add('error'); statusEl.innerText = 'Video not found on the server.';
+      } else {
+        statusEl.classList.add('error'); statusEl.innerText = 'Playback failed. Contact admin.';
+      }
+      videoEl._playingAttempt = false;
+      return;
     }
   }
 
-  // render
-  function render(){
-    grid.innerHTML = '';
-    if(!videos.length){
-      grid.innerHTML = '<div style="opacity:0.8">No videos yet. Admin will upload lessons here.</div>';
-      return;
-    }
+  // attach a video-level 'error' listener to trigger fallback when native playback fails
+  function attachErrorFallback(videoEl){
+    videoEl.addEventListener('error', async (ev) => {
+      console.warn('video element error event', ev);
+      // If we already attempted fallback via attemptPlayback, don't double-run
+      if(videoEl._playingAttempt) return;
+      // Try attemptPlayback which will run the same robust flow
+      try { await attemptPlayback(videoEl); } catch(e){ console.error('attemptPlayback from error handler failed', e); }
+    });
+  }
 
-    videos.forEach(v => {
+    // render grid
+  const videos = await loadVideos();
+  if(!Array.isArray(videos) || videos.length === 0){
+    grid.innerHTML = '<div style="opacity:0.8">No videos yet. Admin will upload lessons here.</div>';
+  } else {
+    grid.innerHTML = '';
+    const ORIGIN = location.origin;
+    videos.forEach(v=>{
       const card = document.createElement('div'); card.className='card';
       const vid = document.createElement('video');
       vid.controls = true;
@@ -164,152 +462,51 @@
       vid.setAttribute('playsinline','');
       try { vid.crossOrigin = 'use-credentials'; } catch(e){}
 
-      const info = document.createElement('div'); info.style.marginTop='8px'; info.style.fontWeight='700'; info.innerText = v.title || 'Untitled';
+      // Prefer HLS playlist URL in data-src, and also store stream fallback URL
+      const playlist = ORIGIN + '/hls/' + v.id + '/index.m3u8';
+      const stream = ORIGIN + '/stream/' + v.id;
+      vid.setAttribute('data-src', playlist);
+      vid.setAttribute('data-stream', stream);
 
-      const errBox = document.createElement('div'); errBox.className='err-block'; errBox.style.display='none';
+      // attach error fallback to trigger robust fallback if native player errors
+      attachErrorFallback(vid);
 
-      // helper to show error in card
-      function showCardError(titleMsg, detailMsg, actionsHtml){
-        errBox.innerHTML = `<div style="font-weight:800">${titleMsg}</div><div style="margin-top:6px">${detailMsg}</div>`;
-        if(actionsHtml){
-          const aWrap = document.createElement('div'); aWrap.style.marginTop='8px';
-          aWrap.innerHTML = actionsHtml;
-          errBox.appendChild(aWrap);
-        }
-        errBox.style.display = 'block';
-      }
+      const titleDiv = document.createElement('div'); titleDiv.style.marginTop='8px'; titleDiv.style.fontWeight='700'; titleDiv.innerText = v.title || 'Untitled';
 
-      // progress: first test HLS playlist
-      (async ()=>{
-        const playlistUrl = ORIGIN + '/hls/' + v.id + '/index.m3u8';
-        const streamUrl = ORIGIN + '/stream/' + v.id;
+      // controls
+      const controls = createControls(vid);
 
-        // check HLS playlist quickly
-        const plResp = await tryFetchPlaylist(v.id);
-        if(plResp && plResp.ok){
-          // HLS exists — prefer it. Use hls.js when available to ensure credentials for segments
-          if(window.Hls && Hls.isSupported()){
-            const hls = new Hls({
-              xhrSetup: function(xhr, url) {
-                xhr.withCredentials = true;
-              }
-            });
-            try {
-              hls.loadSource(playlistUrl);
-              hls.attachMedia(vid);
-              vid._hls = hls;
-              // attach an error handler
-              hls.on(Hls.Events.ERROR, async (event, data)=>{
-                console.warn('hls.js error', event, data);
-                // try fallback to /stream/<id> blob
-                const tried = await fetchStreamAsBlob(vid, streamUrl);
-                if(tried.ok) {
-                  errBox.style.display='none';
-                } else if(tried.status === 401) {
-                  showCardError('Playback failed','Please re-login to watch videos.','<button class="btn-ghost" id="relogin">Go to login</button>');
-                  errBox.querySelector('#relogin').onclick = ()=> location.href='/';
-                } else {
-                  showCardError('Playback failed','Unable to play this video. Please re-login or contact admin.','<button class="btn-ghost" id="retry">Retry</button>');
-                  errBox.querySelector('#retry').onclick = ()=> location.reload();
-                }
-              });
-            } catch(err){
-              console.warn('hls attach failed, falling back', err);
-              // fallback to stream
-              const fallbackResult = await fetchStreamAsBlob(vid, streamUrl);
-              if(!fallbackResult.ok){
-                if(fallbackResult.status === 401){
-                  showCardError('Login required','Please re-login to watch videos.','<button class="btn-ghost" id="relogin">Login</button>');
-                  errBox.querySelector('#relogin').onclick = ()=> location.href='/';
-                } else if(fallbackResult.status === 404){
-                  showCardError('Video missing','Video doesn\\'t exist. Refresh the page or contact admin.','<button class="btn-ghost" id="refresh">Refresh</button>');
-                  errBox.querySelector('#refresh').onclick = ()=> location.reload();
-                } else {
-                  showCardError('Playback failed','Unable to play this video. Please re-login or contact admin.','<button class="btn-ghost" id="retry">Retry</button>');
-                  errBox.querySelector('#retry').onclick = ()=> location.reload();
-                }
-              }
-            }
-          } else {
-            // Native HLS likely (iOS). Assign src directly.
-            vid.src = playlistUrl;
-            // add error handler; if native HLS fails, attempt blob fallback
-            vid.addEventListener('error', async ()=>{
-              const tried = await fetchStreamAsBlob(vid, streamUrl);
-              if(!tried.ok){
-                if(tried.status === 401){
-                  showCardError('Login required','Please re-login to watch videos.','<button class="btn-ghost" id="relogin">Login</button>');
-                  errBox.querySelector('#relogin').onclick = ()=> location.href='/';
-                } else {
-                  showCardError('Playback failed','Unable to play this video. Please re-login or contact admin.','<button class="btn-ghost" id="retry">Retry</button>');
-                  errBox.querySelector('#retry').onclick = ()=> location.reload();
-                }
-              }
-            }, { once: true });
-          }
-          return;
-        }
-
-        // playlist missing or fetch failed => try original stream route via blob fetch
-        if(plResp && plResp.status === 404){
-          // HLS not generated; attempt direct stream blob
-          const blobRes = await fetchStreamAsBlob(vid, streamUrl);
-          if(blobRes.ok){
-            errBox.style.display='none';
-            return;
-          }
-          if(blobRes.status === 401){
-            showCardError('Login required','Please re-login to watch videos.','<button class="btn-ghost" id="relogin">Login</button>');
-            errBox.querySelector('#relogin').onclick = ()=> location.href='/';
-            return;
-          }
-          if(blobRes.status === 404){
-            showCardError('Video missing','Video doesn\\'t exist. Refresh the page or contact admin.','<button class="btn-ghost" id="refresh">Refresh</button>');
-            errBox.querySelector('#refresh').onclick = ()=> location.reload();
-            return;
-          }
-          // generic failure
-          showCardError('Playback failed','Unable to play this video. Please re-login or contact admin.','<button class="btn-ghost" id="retry">Retry</button>');
-          errBox.querySelector('#retry').onclick = ()=> location.reload();
-          return;
-        }
-
-        // if plResp failed due to network/other status (e.g., 401)
-        if(plResp && (plResp.status === 401 || plResp.status === 403)){
-          showCardError('Login required','Please re-login to watch videos.','<button class="btn-ghost" id="relogin">Login</button>');
-          errBox.querySelector('#relogin').onclick = ()=> location.href='/';
-          return;
-        }
-
-        // fallback generic: try /stream/<id> blob
-        const blobRes2 = await fetchStreamAsBlob(vid, streamUrl);
-        if(blobRes2.ok) { errBox.style.display='none'; return; }
-        if(blobRes2.status === 401){
-          showCardError('Login required','Please re-login to watch videos.','<button class="btn-ghost" id="relogin">Login</button>');
-          errBox.querySelector('#relogin').onclick = ()=> location.href='/';
-        } else if(blobRes2.status === 404){
-          showCardError('Video missing','Video doesn\\'t exist. Refresh the page or contact admin.','<button class="btn-ghost" id="refresh">Refresh</button>');
-          errBox.querySelector('#refresh').onclick = ()=> location.reload();
-        } else {
-          showCardError('Playback failed','Unable to play this video. Please re-login or contact admin.','<button class="btn-ghost" id="retry">Retry</button>');
-          errBox.querySelector('#retry').onclick = ()=> location.reload();
-        }
-      })();
-
-      // final assembly
       card.appendChild(vid);
-      card.appendChild(createControls(vid));
-      card.appendChild(info);
-      card.appendChild(errBox);
+      card.appendChild(controls);
+      card.appendChild(titleDiv);
+
+      // status area
+      const statusEl = document.createElement('div'); statusEl.className = 'status'; statusEl.innerText = '';
+      card.appendChild(statusEl);
+
       grid.appendChild(card);
     });
   }
 
-  render();
+  // top-right button minimal behaviors
+  topHelpBtn.addEventListener('click', async ()=>{
+    await showModal('Need help','If you need assistance, contact support or reach out to the admin. We are here to help you learn.', { showCancel:false });
+  });
 
-  // top help
-  document.getElementById('topHelpBtn').addEventListener('click', async ()=>{
-    await showModal('Need help','If you need assistance, contact support or reach out to the admin. We are here to help you learn.');
+  // UX protections & polish (unchanged)
+  document.addEventListener('contextmenu', e => {
+    const el = e.target;
+    if(el && (el.tagName === 'VIDEO' || (el.closest && el.closest('.card')))){
+      e.preventDefault();
+    }
+  });
+
+  // Blur videos when page hidden
+  document.addEventListener('visibilitychange', ()=>{ document.querySelectorAll('video').forEach(v=> v.style.filter = document.visibilityState === 'visible' ? 'none' : 'blur(6px)'); });
+
+  // revoke created object URLs when leaving
+  window.addEventListener('beforeunload', ()=>{
+    for(const u of createdObjectUrls) try{ URL.revokeObjectURL(u);}catch(e){}
   });
 
 })();
