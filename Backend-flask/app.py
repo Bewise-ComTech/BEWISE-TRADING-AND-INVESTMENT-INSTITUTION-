@@ -5,6 +5,10 @@ import logging
 import mimetypes
 import shutil
 import subprocess
+import hmac
+import hashlib
+import base64
+import time
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
 from flask import (
@@ -43,14 +47,6 @@ POSTGRES_URL = os.environ.get("DATABASE_URL") or (
 
 # Optional frontend origin for CORS when streaming video cross-origin
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN")  # e.g. "https://your-frontend.example.com"
-
-# SMTP/email config intentionally not used for now (you said payment emails not needed)
-SMTP_HOST = os.environ.get("SMTP_HOST")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
-SMTP_USER = os.environ.get("SMTP_USER")
-SMTP_PASS = os.environ.get("SMTP_PASS")
-EMAIL_FROM = os.environ.get("EMAIL_FROM", SMTP_USER)
-EMAIL_TO = os.environ.get("EMAIL_TO", "ezehebubechidubem@gmail.com")
 
 # --------------- App setup ---------------
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
@@ -413,7 +409,7 @@ def make_range_response(path, request, download_name=None):
             headers['Access-Control-Allow-Origin'] = origin
             headers['Access-Control-Allow-Credentials'] = 'true'
     else:
-        # if no FRONTEND_ORIGIN specified, echo Origin when present
+        # if no FRONTEND_ORIGIN specified, echo Origin when present (helps cross-origin access)
         if origin:
             headers['Access-Control-Allow-Origin'] = origin
             headers['Access-Control-Allow-Credentials'] = 'true'
@@ -511,7 +507,75 @@ def serve_hls(video_id, fname):
         resp.headers['Content-Type'] = 'video/mp2t'
     return resp
 
-#-------------- API: Admin -------------
+
+# -------------- Signed URL helpers (new) -------------
+def make_signed_token(video_id, expires_seconds=3600):
+    """
+    Create a URL-safe base64 token encoding "video_id:expiry:signature"
+    signature = HMAC_SHA256(app.secret_key, f"{video_id}:{expiry}")
+    """
+    expiry = int(time.time()) + int(expires_seconds)
+    msg = f"{video_id}:{expiry}"
+    sig = hmac.new(app.secret_key.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    payload = f"{msg}:{sig}".encode()
+    token = base64.urlsafe_b64encode(payload).decode()
+    return token
+
+def verify_signed_token(token):
+    try:
+        raw = base64.urlsafe_b64decode(token.encode()).decode()
+        parts = raw.split(':')
+        if len(parts) < 3:
+            return False, None
+        video_id = int(parts[0])
+        expiry = int(parts[1])
+        sig = parts[2]
+        # Recompute
+        msg = f"{video_id}:{expiry}"
+        expected = hmac.new(app.secret_key.encode(), msg.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            return False, None
+        if time.time() > expiry:
+            return False, None
+        return True, video_id
+    except Exception as exc:
+        logger.exception("verify_signed_token failed: %s", exc)
+        return False, None
+
+@app.route("/api/video_token/<int:video_id>")
+def api_video_token(video_id):
+    # Requires a valid session (so only logged-in users can request tokens)
+    token_cookie = request.cookies.get("session_token")
+    s = validate_session(token_cookie)
+    if not s:
+        return jsonify({"success": False, "error": "auth_required"}), 401
+    v = Video.query.get(video_id)
+    if not v:
+        return jsonify({"success": False, "error": "video_not_found"}), 404
+    token = make_signed_token(video_id, expires_seconds=60*60)  # 1 hour by default
+    signed_url = f"/signed_stream/{video_id}?t={token}"
+    return jsonify({"success": True, "token": token, "url": signed_url})
+
+@app.route("/signed_stream/<int:video_id>")
+def signed_stream(video_id):
+    token = request.args.get("t", "")
+    ok, vid = verify_signed_token(token)
+    if not ok or vid != video_id:
+        return ("Unauthorized", 401)
+    v = Video.query.get(video_id)
+    if not v:
+        return ("Not found", 404)
+    path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
+    if not os.path.exists(path):
+        return ("File missing", 404)
+    try:
+        # stream without requiring session cookie (token-based)
+        return make_range_response(path, request, download_name=v.filename)
+    except Exception as exc:
+        logger.exception("Signed streaming failed for %s: %s", path, exc)
+        return ("Streaming error", 500)
+
+# -------------- API: Admin -------------
 @app.route("/api/admin/upload_video", methods=["POST"])
 def api_admin_upload_video():
     if not admin_auth_ok(request):
