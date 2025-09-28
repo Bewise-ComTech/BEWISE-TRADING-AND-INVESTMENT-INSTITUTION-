@@ -37,6 +37,10 @@
   .vp-btn { padding:8px 12px; border-radius:8px; border:0; cursor:pointer; font-weight:700; background:#06b6d4; color:#042a2b; }
   .vp-btn.pause { background:#ef4444; color:#fff; }
 
+  .diagnose-btn { background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfefff; padding:6px 8px; border-radius:8px; cursor:pointer; }
+
+  .debug-log { margin-top:8px; font-family:monospace; font-size:12px; color:#bfefff; white-space:pre-wrap; background:rgba(0,0,0,0.08); padding:8px; border-radius:8px; }
+
   @media (max-width:720px){
     .card{padding:10px}
     .precard .panel { padding:12px; }
@@ -131,7 +135,36 @@
     }
   }
 
-  // pre-card + playback
+  // quick Range-check of signed URL to validate access before wiring <video>
+  // uses Range: bytes=0-0 to prompt a 206 or 200 and prevent false "missing" errors.
+  async function checkSignedUrlReachable(signedUrl){
+    try {
+      const r = await fetch(signedUrl, {
+        method: 'GET',
+        headers: { 'Range': 'bytes=0-0' },
+        // no credentials needed for signed URLs
+      });
+      const out = { status: r.status, ok: r.ok, headers: {} };
+      out.headers['Content-Type'] = r.headers.get('Content-Type');
+      out.headers['Content-Range'] = r.headers.get('Content-Range');
+      out.headers['Accept-Ranges'] = r.headers.get('Accept-Ranges');
+      return out;
+    } catch (e) {
+      console.error('checkSignedUrlReachable failed', e);
+      return { ok:false, error: e };
+    }
+  }
+
+  // helper: more informative log formatting
+  function fmtHeaders(h){
+    let o = [];
+    for(const k of ['Content-Type','Content-Range','Accept-Ranges']){
+      if(h[k]) o.push(`${k}: ${h[k]}`);
+    }
+    return o.join('\\n') || '(no headers)';
+  }
+
+  // pre-card + playback with robust verification & a single safe refresh retry
   const grid = document.getElementById('grid');
 
   const videos = await loadVideos();
@@ -154,19 +187,18 @@
       const status = document.createElement('div'); status.className = 'status';
       status.style.marginTop = '8px';
 
-      // small controls (play/pause) left in place; but playback initiation uses pre-card
+      // small controls
       const controls = document.createElement('div'); controls.className = 'vp-controls';
-      const playBtn = document.createElement('button'); playBtn.className='vp-btn'; playBtn.textContent='Play';
+      const smallPlay = document.createElement('button'); smallPlay.className='vp-btn'; smallPlay.textContent='Play';
       const pauseBtn = document.createElement('button'); pauseBtn.className='vp-btn pause'; pauseBtn.textContent='Pause'; pauseBtn.style.display='none';
-      controls.appendChild(playBtn); controls.appendChild(pauseBtn);
+      const diagnoseBtn = document.createElement('button'); diagnoseBtn.className='diagnose-btn'; diagnoseBtn.textContent='Diagnose';
+      controls.appendChild(smallPlay); controls.appendChild(pauseBtn); controls.appendChild(diagnoseBtn);
 
-      playBtn.addEventListener('click', async ()=>{
-        await precardPlay();
-      });
+      smallPlay.addEventListener('click', async ()=>{ await precardPlay(); });
       pauseBtn.addEventListener('click', ()=>{ try{ vid.pause(); }catch(e){} });
 
-      vid.addEventListener('play', ()=>{ playBtn.style.display='none'; pauseBtn.style.display='inline-block'; });
-      vid.addEventListener('pause', ()=>{ pauseBtn.style.display='none'; playBtn.style.display='inline-block'; });
+      vid.addEventListener('play', ()=>{ smallPlay.style.display='none'; pauseBtn.style.display='inline-block'; });
+      vid.addEventListener('pause', ()=>{ pauseBtn.style.display='none'; smallPlay.style.display='inline-block'; });
 
       // Pre-card overlay
       const precard = document.createElement('div'); precard.className = 'precard';
@@ -177,107 +209,168 @@
       panel.appendChild(title); panel.appendChild(meta); panel.appendChild(bigPlay);
       precard.appendChild(panel);
 
-      // attach click handlers to pre-card and small play
-      bigPlay.addEventListener('click', precardPlay);
+      // debug area (hidden by default; filled by Diagnose)
+      const debugLog = document.createElement('div'); debugLog.className = 'debug-log'; debugLog.style.display='none';
 
-      async function precardPlay(){
-        // guard
-        if(vid._starting) return;
-        vid._starting = true;
-        status.classList.remove('error'); status.innerText = 'Preparing playback...';
-        // request signed token from server (server checks session)
+      bigPlay.addEventListener('click', precardPlay);
+      smallPlay.addEventListener('click', precardPlay);
+
+      // Diagnose button: runs /api/video_token and a Range GET on the signed URL and prints the outcome
+      diagnoseBtn.addEventListener('click', async ()=>{
+        debugLog.style.display='block';
+        debugLog.innerText = 'Running diagnostic...\\n';
         const tokenRes = await requestSignedUrl(v.id);
         if(!tokenRes.ok){
-          if(tokenRes.status === 401){
-            // session invalid -> require re-login
-            await showModal('Login required','Please login again to watch videos. Redirecting to login.');
-            location.href = '/';
-            return;
-          }
-          status.classList.add('error');
-          status.innerText = 'Failed to get playback URL (status: ' + (tokenRes.status || 'network') + ').';
-          vid._starting = false;
+          debugLog.innerText += `token request failed: status=${tokenRes.status || 'network'}\\n`;
+          if(tokenRes.status === 401) debugLog.innerText += '-> token endpoint returned 401: session invalid. Please login.\\n';
           return;
         }
-        // set video.src to signed URL (absolute)
+        debugLog.innerText += `token OK. token present. URL: ${tokenRes.url}\\n`;
         const signedUrl = ORIGIN + tokenRes.url;
-        try { if(vid._hls){ vid._hls.destroy(); vid._hls = null; } } catch(e){}
-        try { URL.revokeObjectURL(vid.src); } catch(e){}
-        vid.removeAttribute('src');
+        debugLog.innerText += `signed URL (testing Range GET bytes=0-0)...\\n`;
+        const chk = await checkSignedUrlReachable(signedUrl);
+        if(chk.ok){
+          debugLog.innerText += `Range GET status=${chk.status}\\n${fmtHeaders(chk.headers)}\\n`;
+          if(chk.status === 206 || chk.status === 200){
+            debugLog.innerText += 'Result: stream reachable — should play fine.\\n';
+          } else {
+            debugLog.innerText += 'Result: unexpected status for Range GET.\\n';
+          }
+        } else {
+          debugLog.innerText += `Range GET failed: ${chk.status || 'network'}\\n${chk.error ? chk.error.toString() : ''}\\n`;
+        }
+      });
 
-        vid.src = signedUrl;
-        // hide precard overlay
-        precard.style.display = 'none';
-        status.innerText = 'Starting playback...';
-        try{
-          await vid.play();
-          status.innerText = '';
-        } catch(e){
-          // user gesture may be required — leave status quiet
-          status.innerText = '';
-        } finally {
-          vid._starting = false;
+      async function precardPlay(){
+        if(vid._starting) return;
+        vid._starting = true;
+        vid._errorRetries = 0;
+        status.classList.remove('error'); status.innerText = 'Preparing playback...';
+        // 1) get token
+        let tokenRes = await requestSignedUrl(v.id);
+        if(!tokenRes.ok){
+          if(tokenRes.status === 401){
+            await showModal('Login required','Please login again to watch videos. Redirecting to login.');
+            location.href = '/'; return;
+          }
+          status.classList.add('error'); status.innerText = 'Failed to get playback token. Try re-login.';
+          vid._starting = false; return;
+        }
+        // 2) check signed url reachability with Range GET
+        const signedUrl = ORIGIN + tokenRes.url;
+        let chk = await checkSignedUrlReachable(signedUrl);
+        if(!chk.ok || !(chk.status === 206 || chk.status === 200)){
+          // do one safe retry: request a fresh token and re-check (handles transient races)
+          status.classList.add('note'); status.innerText = 'Initial stream check failed; trying a fresh token...';
+          tokenRes = await requestSignedUrl(v.id);
+          if(!tokenRes.ok){
+            if(tokenRes.status === 401){
+              await showModal('Login required','Please login again to watch videos. Redirecting to login.');
+              location.href = '/'; return;
+            }
+            status.classList.add('error'); status.innerText = 'Failed to refresh playback token.';
+            vid._starting = false; return;
+          }
+          const signed2 = ORIGIN + tokenRes.url;
+          chk = await checkSignedUrlReachable(signed2);
+          if(!chk.ok || !(chk.status === 206 || chk.status === 200)){
+            // definitive failure
+            if(chk.status === 404){
+              status.classList.add('error'); status.innerText = 'Video missing on server.';
+            } else if(chk.status === 401){
+              await showModal('Login required','Please login again to watch videos. Redirecting to login.');
+              location.href = '/'; return;
+            } else {
+              status.classList.add('error'); status.innerText = `Playback unavailable (status ${chk.status || 'network'}).`;
+            }
+            vid._starting = false; return;
+          } else {
+            // great — use this signed2
+            await startPlaybackWithUrl(signed2, vid, status);
+            vid._starting = false; return;
+          }
+        } else {
+          // first signed URL OK
+          await startPlaybackWithUrl(signedUrl, vid, status);
+          vid._starting = false; return;
         }
       }
 
-      // NEW: Robust error handler — try refreshing a signed URL once before reporting "missing"
+      // helper to set src, load and attempt to play
+      async function startPlaybackWithUrl(signedUrl, videoEl, statusEl){
+        try {
+          statusEl.classList.remove('error'); statusEl.innerText = 'Starting playback...';
+          // remove old src/hls
+          try { if(videoEl._hls){ videoEl._hls.destroy(); videoEl._hls = null; } } catch(e){}
+          try { if(videoEl.src && videoEl.src.startsWith('blob:')) URL.revokeObjectURL(videoEl.src); } catch(e){}
+          videoEl.pause();
+          videoEl.removeAttribute('src');
+          videoEl.load();
+          // assign new src and load to make player ready
+          videoEl.src = signedUrl;
+          // call load then user-gesture play (we're in click handler)
+          videoEl.load();
+          await videoEl.play();
+          statusEl.innerText = '';
+        } catch (err) {
+          console.warn('startPlaybackWithUrl: play() failed', err);
+          // In case play() fails, show a friendly inline hint but attempt one recovery via re-requesting token (only when precard play)
+          statusEl.classList.add('error');
+          statusEl.innerText = 'Playback retry failed. Contact admin.';
+        }
+      }
+
+      // resilient error handler for mid-playback errors: attempt single silent token refresh then retry
       vid._errorRetries = 0;
       vid.addEventListener('error', async (ev)=>{
-        console.warn('video element error', ev);
-        // limit retries to 1 to avoid loops
+        console.warn('video element error event', ev);
         if(vid._errorRetries >= 1){
-          status.classList.add('error');
-          status.innerText = 'Playback failed. If the video was recently uploaded, try refreshing the page or re-login.';
+          status.classList.add('error'); status.innerText = 'Playback failed. If this persists, use Diagnose and contact admin.';
           return;
         }
         vid._errorRetries += 1;
-        status.classList.remove('error');
-        status.innerText = 'Playback error detected — attempting to refresh playback URL...';
-
-        // ask server for a fresh signed URL and retry
+        status.classList.remove('error'); status.innerText = 'Playback error — attempting to refresh token and retry...';
+        // request a new signed URL, check reachability and use if ok
         const tokenRes = await requestSignedUrl(v.id);
         if(!tokenRes.ok){
           if(tokenRes.status === 401){
             await showModal('Login required','Please login again to watch videos. Redirecting to login.');
-            location.href = '/';
-            return;
+            location.href = '/'; return;
           }
-          if(tokenRes.status === 404){
-            status.classList.add('error');
-            status.innerText = 'Video missing on server.';
-            return;
-          }
-          status.classList.add('error');
-          status.innerText = 'Unable to refresh playback URL (status: ' + (tokenRes.status || 'network') + ').';
+          status.classList.add('error'); status.innerText = 'Unable to refresh token. Contact admin.';
           return;
         }
-
-        // got new signed URL — apply it and attempt to play
-        const newSigned = ORIGIN + tokenRes.url;
-        try {
-          // clean up any existing hls instance
-          try { if(vid._hls){ vid._hls.destroy(); vid._hls = null; } } catch(e){}
-          // replace src, then try to play
-          vid.pause();
-          vid.removeAttribute('src');
-          try { URL.revokeObjectURL(vid.src); } catch(e){}
-          vid.src = newSigned;
-          // small delay to let the element reset
-          setTimeout(async ()=>{
-            status.innerText = 'Retrying playback...';
-            try{
-              await vid.play();
-              status.innerText = '';
-            } catch(e){
-              console.warn('play after token refresh failed', e);
-              status.classList.add('error');
-              status.innerText = 'Playback retry failed. Contact admin.';
-            }
-          }, 250);
-        } catch(e){
-          console.error('Retrying playback failed', e);
-          status.classList.add('error');
-          status.innerText = 'Playback retry failed. Contact admin.';
+        const signedUrl = ORIGIN + tokenRes.url;
+        const chk = await checkSignedUrlReachable(signedUrl);
+        if(chk.ok && (chk.status === 206 || chk.status === 200)){
+          // apply new src and try to play
+          try {
+            try { if(vid._hls){ vid._hls.destroy(); vid._hls = null; } } catch(e){}
+            vid.pause(); vid.removeAttribute('src'); vid.load();
+            vid.src = signedUrl;
+            vid.load();
+            setTimeout(async ()=>{
+              try{
+                await vid.play();
+                status.classList.remove('error'); status.classList.add('note'); status.innerText = 'Playback resumed after refresh.';
+              } catch(e){
+                console.warn('play after error-refresh failed', e);
+                status.classList.add('error'); status.innerText = 'Playback retry failed. Contact admin.';
+              }
+            }, 200);
+          } catch(e){
+            console.error('apply new signed url failed', e);
+            status.classList.add('error'); status.classList.add('error'); status.innerText = 'Playback retry failed. Contact admin.';
+          }
+        } else {
+          if(chk.status === 404){
+            status.classList.add('error'); status.innerText = 'Video missing on server.';
+          } else if(chk.status === 401){
+            await showModal('Login required','Please login again to watch videos. Redirecting to login.');
+            location.href = '/'; return;
+          } else {
+            status.classList.add('error'); status.innerText = 'Playback retry failed (network).';
+          }
         }
       });
 
@@ -286,6 +379,7 @@
       card.appendChild(precard);
       card.appendChild(controls);
       card.appendChild(status);
+      card.appendChild(debugLog);
       grid.appendChild(card);
     });
   }
