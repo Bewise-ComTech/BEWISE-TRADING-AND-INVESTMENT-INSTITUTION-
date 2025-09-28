@@ -37,6 +37,8 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", ADMIN_PIN)
 ALLOWED_DEVICE_HASH = os.environ.get("ALLOWED_DEVICE_HASH")   # optional lock-to-device
 SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(24))
 MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 200 * 1024 * 1024))
+# Default COOKIE_SECURE remains true in production; set env COOKIE_SECURE=0 for local dev,
+# but server will now detect insecure requests and relax cookie flags automatically.
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 
 # Render/Postgres DB you gave (or override with DATABASE_URL env var)
@@ -166,8 +168,24 @@ def admin_auth_ok(req):
     return False
 
 def set_session_cookie(resp, token):
-    samesite_val = "None" if COOKIE_SECURE else "Lax"
-    resp.set_cookie("session_token", token, httponly=True, samesite=samesite_val, secure=COOKIE_SECURE, path="/")
+    """
+    Set the session cookie. Smartly relax Secure/SameSite when the request is not HTTPS
+    so local/dev HTTP environments still receive the cookie. In production, preserve
+    COOKIE_SECURE behavior.
+    """
+    # default samesite depending on global
+    # but detect request scheme to avoid setting Secure=True on plain HTTP (which prevents sending)
+    scheme = request.environ.get('wsgi.url_scheme', 'http')
+    is_https = scheme == 'https' or request.is_secure if hasattr(request, 'is_secure') else scheme == 'https'
+
+    # prefer secure only if configured AND request appears secure
+    secure_flag = COOKIE_SECURE and is_https
+    samesite_val = "None" if secure_flag else "Lax"
+
+    # log for debugging
+    logger.debug("Setting session cookie: secure=%s samesite=%s (COOKIE_SECURE=%s scheme=%s)", secure_flag, samesite_val, COOKIE_SECURE, scheme)
+
+    resp.set_cookie("session_token", token, httponly=True, samesite=samesite_val, secure=secure_flag, path="/")
     return resp
 
 # -------------- Init DB & ensure admin PIN exists & non-revocable by default -----------------
@@ -485,6 +503,7 @@ def serve_hls(video_id, fname):
     elif target.endswith('.ts'):
         resp.headers['Content-Type'] = 'video/mp2t'
     return resp
+
 # -------------- New: helper to resolve missing video files -------------
 def resolve_video_path(video_obj, attempt_relink=True):
     """
@@ -562,13 +581,38 @@ def verify_signed_token(token):
         logger.exception("verify_signed_token failed: %s", exc)
         return False, None
 
+def _extract_session_token_from_request(req):
+    """
+    Try to extract a session token from cookie, Authorization header, X-Session-Token header,
+    or session_token query param. Returns token string or None.
+    """
+    # 1) cookie (preferred)
+    token = req.cookies.get("session_token")
+    if token:
+        return token
+    # 2) Authorization: Bearer <token>
+    auth = req.headers.get("Authorization") or req.headers.get("authorization")
+    if auth and auth.strip().lower().startswith("bearer "):
+        return auth.strip().split(" ", 1)[1].strip()
+    # 3) X-Session-Token header
+    xt = req.headers.get("X-Session-Token")
+    if xt:
+        return xt.strip()
+    # 4) query param
+    qt = req.args.get("session_token") or req.values.get("session_token")
+    if qt:
+        return qt.strip()
+    return None
+
 @app.route("/api/video_token/<int:video_id>")
 def api_video_token(video_id):
-    # Requires a valid session (so only logged-in users can request tokens)
-    token_cookie = request.cookies.get("session_token")
-    s = validate_session(token_cookie)
+    # Accept session via cookie or fallback headers/params (for edge cases/dev)
+    token_val = _extract_session_token_from_request(request)
+    s = validate_session(token_val)
     if not s:
+        logger.info("api_video_token: no valid session token provided (extracted=%s)", bool(token_val))
         return jsonify({"success": False, "error": "auth_required"}), 401
+
     v = Video.query.get(video_id)
     if not v:
         return jsonify({"success": False, "error": "video_not_found"}), 404
@@ -576,6 +620,7 @@ def api_video_token(video_id):
     # ensure the file exists (and attempt safe relink if it doesn't)
     path, relinked, relink_fn = resolve_video_path(v, attempt_relink=True)
     if not path or not os.path.exists(path):
+        logger.warning("api_video_token: file missing for video %s (db filename=%s)", video_id, v.filename)
         return jsonify({"success": False, "error": "file_missing", "message": "Video file is missing on server."}), 404
 
     token = make_signed_token(video_id, expires_seconds=60*60)  # 1 hour
@@ -896,7 +941,7 @@ def api_admin_finish_video_upload():
             pass
         return jsonify({"success": False, "error": "assemble_failed", "message": str(exc)}), 500
 
-# -------------- API: Payment (keep record but do not attempt SMTP sending) ------------
+-------------- API: Payment (keep record but do not attempt SMTP sending) ------------
 @app.route("/api/payment/proof", methods=["POST"])
 def api_payment_proof():
     name = request.form.get("name", "")
@@ -934,7 +979,6 @@ def api_payment_proof():
 # -------------- Video diagnosis endpoint (new) -------------
 @app.route("/api/video_diagnose/<int:video_id>", methods=["GET"])
 def api_video_diagnose(video_id):
-    # session optional — allow admin or user to diagnose; but if you want restricted, you can reuse validate_session
     v = Video.query.get(video_id)
     if not v:
         return jsonify({"success": False, "error": "video_not_found"}), 404
@@ -987,4 +1031,3 @@ def health():
 if __name__ == "__main__":
     debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
