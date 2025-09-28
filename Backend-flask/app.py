@@ -420,26 +420,6 @@ def make_range_response(path, request, download_name=None):
         rv.headers['Content-Disposition'] = f'inline; filename="{download_name}"'
     return rv
 
-@app.route("/stream/<int:video_id>", methods=["GET"])
-def stream_video(video_id):
-    # check session before streaming
-    token = request.cookies.get("session_token")
-    s = validate_session(token)
-    if not s:
-        # return 401 so frontend will handle re-login
-        return ("Unauthorized", 401)
-    v = Video.query.get(video_id)
-    if not v:
-        return ("Not found", 404)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
-    if not os.path.exists(path):
-        return ("File missing", 404)
-    try:
-        return make_range_response(path, request, download_name=v.filename)
-    except Exception as exc:
-        logger.exception("Streaming failed for %s: %s", path, exc)
-        return ("Streaming error", 500)
-
 # -------------- HLS generation & serving -------------
 def create_hls_for_file(src_path, dest_dir, segment_time=6):
     """
@@ -490,7 +470,6 @@ def serve_hls(video_id, fname):
         return resp
 
     hls_dir = os.path.join(app.config["UPLOAD_FOLDER"], f"hls_{video_id}")
-    # secure filename usage
     safe_fname = secure_filename(fname)
     target = os.path.join(hls_dir, safe_fname)
     if not os.path.exists(target):
@@ -506,14 +485,56 @@ def serve_hls(video_id, fname):
     elif target.endswith('.ts'):
         resp.headers['Content-Type'] = 'video/mp2t'
     return resp
+# -------------- New: helper to resolve missing video files -------------
+def resolve_video_path(video_obj, attempt_relink=True):
+    """
+    Given a Video row, return absolute path to the file if it exists.
+    If missing and attempt_relink=True, try a safe heuristic:
+      - take the basename after the first '_' if present (old uploads sometimes had a prefix)
+      - scan uploads/ for a file that endswith that basename
+      - if found, update the DB row to point to that file and return the new path
+    Returns (path_or_none, relink_performed_bool, relink_filename_or_None)
+    """
+    if not video_obj or not video_obj.filename:
+        return None, False, None
+    candidate = os.path.join(app.config["UPLOAD_FOLDER"], video_obj.filename)
+    if os.path.exists(candidate):
+        return candidate, False, None
+    if not attempt_relink:
+        return None, False, None
 
+    # Heuristic: try to find a file with same basename (after possible prefix)
+    basename = video_obj.filename
+    if "_" in basename:
+        # if names used random hex prefix like <hex>_<origname>, take the part after underscore
+        basename = basename.split("_", 1)[-1]
+    # scan uploads
+    try:
+        for fn in os.listdir(app.config["UPLOAD_FOLDER"]):
+            # ignore chunk folder
+            if fn == "chunks": continue
+            if fn.endswith(basename):
+                # found candidate -> relink
+                new_path = os.path.join(app.config["UPLOAD_FOLDER"], fn)
+                if os.path.exists(new_path):
+                    # update DB row safely
+                    try:
+                        video_obj.filename = fn
+                        db.session.add(video_obj)
+                        db.session.commit()
+                        logger.info("Re-linked Video id=%s to existing file %s", video_obj.id, fn)
+                        return new_path, True, fn
+                    except Exception:
+                        db.session.rollback()
+                        logger.exception("Failed to relink video DB row to %s", fn)
+                        # still return the path for debugging if exists
+                        return new_path, False, fn
+    except Exception:
+        logger.exception("resolve_video_path scan failed")
+    return None, False, None
 
 # -------------- Signed URL helpers (new) -------------
 def make_signed_token(video_id, expires_seconds=3600):
-    """
-    Create a URL-safe base64 token encoding "video_id:expiry:signature"
-    signature = HMAC_SHA256(app.secret_key, f"{video_id}:{expiry}")
-    """
     expiry = int(time.time()) + int(expires_seconds)
     msg = f"{video_id}:{expiry}"
     sig = hmac.new(app.secret_key.encode(), msg.encode(), hashlib.sha256).hexdigest()
@@ -530,7 +551,6 @@ def verify_signed_token(token):
         video_id = int(parts[0])
         expiry = int(parts[1])
         sig = parts[2]
-        # Recompute
         msg = f"{video_id}:{expiry}"
         expected = hmac.new(app.secret_key.encode(), msg.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, sig):
@@ -552,9 +572,15 @@ def api_video_token(video_id):
     v = Video.query.get(video_id)
     if not v:
         return jsonify({"success": False, "error": "video_not_found"}), 404
-    token = make_signed_token(video_id, expires_seconds=60*60)  # 1 hour by default
+
+    # ensure the file exists (and attempt safe relink if it doesn't)
+    path, relinked, relink_fn = resolve_video_path(v, attempt_relink=True)
+    if not path or not os.path.exists(path):
+        return jsonify({"success": False, "error": "file_missing", "message": "Video file is missing on server."}), 404
+
+    token = make_signed_token(video_id, expires_seconds=60*60)  # 1 hour
     signed_url = f"/signed_stream/{video_id}?t={token}"
-    return jsonify({"success": True, "token": token, "url": signed_url})
+    return jsonify({"success": True, "token": token, "url": signed_url, "relinked": relinked, "relinked_filename": relink_fn})
 
 @app.route("/signed_stream/<int:video_id>")
 def signed_stream(video_id):
@@ -565,14 +591,35 @@ def signed_stream(video_id):
     v = Video.query.get(video_id)
     if not v:
         return ("Not found", 404)
-    path = os.path.join(app.config["UPLOAD_FOLDER"], v.filename)
-    if not os.path.exists(path):
+
+    path, relinked, relink_fn = resolve_video_path(v, attempt_relink=True)
+    if not path or not os.path.exists(path):
+        # still missing
         return ("File missing", 404)
     try:
-        # stream without requiring session cookie (token-based)
         return make_range_response(path, request, download_name=v.filename)
     except Exception as exc:
         logger.exception("Signed streaming failed for %s: %s", path, exc)
+        return ("Streaming error", 500)
+
+@app.route("/stream/<int:video_id>", methods=["GET"])
+def stream_video(video_id):
+    # check session before streaming
+    token = request.cookies.get("session_token")
+    s = validate_session(token)
+    if not s:
+        # return 401 so frontend will handle re-login
+        return ("Unauthorized", 401)
+    v = Video.query.get(video_id)
+    if not v:
+        return ("Not found", 404)
+    path, relinked, relink_fn = resolve_video_path(v, attempt_relink=True)
+    if not path or not os.path.exists(path):
+        return ("File missing", 404)
+    try:
+        return make_range_response(path, request, download_name=v.filename)
+    except Exception as exc:
+        logger.exception("Streaming failed for %s: %s", path, exc)
         return ("Streaming error", 500)
 
 # -------------- API: Admin -------------
@@ -883,6 +930,48 @@ def api_payment_proof():
         return jsonify({"success": False, "error": "db_failed", "message": str(exc)}), 500
 
     return jsonify({"success": True})
+
+# -------------- Video diagnosis endpoint (new) -------------
+@app.route("/api/video_diagnose/<int:video_id>", methods=["GET"])
+def api_video_diagnose(video_id):
+    # session optional — allow admin or user to diagnose; but if you want restricted, you can reuse validate_session
+    v = Video.query.get(video_id)
+    if not v:
+        return jsonify({"success": False, "error": "video_not_found"}), 404
+    path, relinked, relink_fn = resolve_video_path(v, attempt_relink=False)
+    exists = bool(path and os.path.exists(path))
+    info = {
+        "id": v.id,
+        "title": v.title,
+        "db_filename": v.filename,
+        "expected_path": os.path.join(app.config["UPLOAD_FOLDER"], v.filename),
+        "exists": exists,
+        "relinked_attempted": False,
+        "relinked": relinked,
+        "relinked_filename": relink_fn
+    }
+    if exists:
+        st = os.stat(path)
+        info.update({"file_size": st.st_size, "modified_at": datetime.utcfromtimestamp(st.st_mtime).isoformat()})
+    # also report HLS dir presence
+    hls_dir = os.path.join(app.config["UPLOAD_FOLDER"], f"hls_{v.id}")
+    info["hls_exists"] = os.path.isdir(hls_dir)
+    if info["hls_exists"]:
+        info["hls_files"] = os.listdir(hls_dir)
+    # Also list candidate matches (use the relink heuristic to suggest possible files)
+    candidates = []
+    basename = v.filename
+    if "_" in basename:
+        basename = basename.split("_", 1)[-1]
+    try:
+        for fn in os.listdir(app.config["UPLOAD_FOLDER"]):
+            if fn == "chunks": continue
+            if fn.endswith(basename):
+                candidates.append(fn)
+    except Exception:
+        pass
+    info["candidates"] = candidates
+    return jsonify({"success": True, "diagnose": info})
 
 # -------------- Health -------------------
 @app.route("/api/health")
