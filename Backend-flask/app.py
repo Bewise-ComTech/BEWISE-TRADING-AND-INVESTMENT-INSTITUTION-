@@ -19,7 +19,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from jinja2 import TemplateNotFound
 
-# --------------- Configuration ---------------
+# ---------------- Configuration ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 CHUNK_FOLDER = os.path.join(UPLOAD_FOLDER, "chunks")
@@ -31,26 +31,23 @@ os.makedirs(CHUNK_FOLDER, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
-# Env-configurable (default admin PIN set to 811335 as requested)
+# Default admin PIN (can be overridden by env)
 ADMIN_PIN = os.environ.get("ADMIN_PIN", "811335")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", ADMIN_PIN)
 ALLOWED_DEVICE_HASH = os.environ.get("ALLOWED_DEVICE_HASH")   # optional lock-to-device
 SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(24))
 MAX_CONTENT_LENGTH = int(os.environ.get("MAX_CONTENT_LENGTH", 200 * 1024 * 1024))
-# Default COOKIE_SECURE remains true in production; set env COOKIE_SECURE=0 for local dev,
-# but server will now detect insecure requests and relax cookie flags automatically.
+# In production, COOKIE_SECURE should be 1. For local dev, set COOKIE_SECURE=0 or let server relax based on scheme.
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "1") == "1"
 
-# Render/Postgres DB you gave (or override with DATABASE_URL env var)
 POSTGRES_URL = os.environ.get("DATABASE_URL") or (
     "postgresql://crypto_trading_ef73_user:ExqngrM4GrJX6FmefoA1g3BRPu2kF0tk@"
     "dpg-d37inupr0fns739ha5r0-a.oregon-postgres.render.com/crypto_trading_ef73"
 )
 
-# Optional frontend origin for CORS when streaming video cross-origin
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN")  # e.g. "https://your-frontend.example.com"
+FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN")  # optional: helps CORS for streaming requests
 
-# --------------- App setup ---------------
+# ---------------- App setup ----------------
 app = Flask(__name__, template_folder=TEMPLATES_DIR, static_folder=STATIC_DIR)
 app.config["SQLALCHEMY_DATABASE_URI"] = POSTGRES_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -58,7 +55,6 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = MAX_CONTENT_LENGTH
 app.secret_key = SECRET_KEY
 
-# Keep CORS for APIs; streaming/HLS endpoints will add CORS headers dynamically as needed.
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 logging.basicConfig(level=logging.INFO)
@@ -66,7 +62,7 @@ logger = logging.getLogger("crypto_training")
 
 db = SQLAlchemy(app)
 
-# --------------- Models ---------------
+# ---------------- Models ----------------
 class Pin(db.Model):
     __tablename__ = "pins"
     id = db.Column(db.Integer, primary_key=True)
@@ -109,7 +105,7 @@ class Session(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     expires_at = db.Column(db.DateTime)
 
-# --------------- Utilities --------------
+# ---------------- Utilities ----------------
 def now():
     return datetime.utcnow()
 
@@ -169,26 +165,19 @@ def admin_auth_ok(req):
 
 def set_session_cookie(resp, token):
     """
-    Set the session cookie. Smartly relax Secure/SameSite when the request is not HTTPS
-    so local/dev HTTP environments still receive the cookie. In production, preserve
-    COOKIE_SECURE behavior.
+    Set session cookie intelligently. Avoid setting Secure=True on plain HTTP so
+    the browser will actually send the cookie in dev environments.
     """
-    # default samesite depending on global
-    # but detect request scheme to avoid setting Secure=True on plain HTTP (which prevents sending)
     scheme = request.environ.get('wsgi.url_scheme', 'http')
-    is_https = scheme == 'https' or request.is_secure if hasattr(request, 'is_secure') else scheme == 'https'
-
-    # prefer secure only if configured AND request appears secure
+    is_https = (scheme == 'https') or (request.is_secure if hasattr(request, 'is_secure') else False)
     secure_flag = COOKIE_SECURE and is_https
     samesite_val = "None" if secure_flag else "Lax"
-
-    # log for debugging
-    logger.debug("Setting session cookie: secure=%s samesite=%s (COOKIE_SECURE=%s scheme=%s)", secure_flag, samesite_val, COOKIE_SECURE, scheme)
-
+    logger.debug("Setting session cookie: secure=%s samesite=%s (COOKIE_SECURE=%s scheme=%s)",
+                 secure_flag, samesite_val, COOKIE_SECURE, scheme)
     resp.set_cookie("session_token", token, httponly=True, samesite=samesite_val, secure=secure_flag, path="/")
     return resp
 
-# -------------- Init DB & ensure admin PIN exists & non-revocable by default -----------------
+# ---------------- Init DB & ensure admin PIN exists ----------------
 with app.app_context():
     db.create_all()
     admin_obj = Pin.query.filter_by(pin=ADMIN_PIN).first()
@@ -202,7 +191,7 @@ with app.app_context():
             db.session.add(admin_obj); db.session.commit()
             logger.info("Admin pin was revoked, reset to active: %s", ADMIN_PIN)
 
-# -------------- Error Handling -----------
+# ---------------- Error Handling ----------------
 @app.errorhandler(413)
 def request_entity_too_large(e):
     return jsonify({"success": False, "error": "file_too_large"}), 413
@@ -220,7 +209,7 @@ def handle_exception(e):
         resp.headers["Content-Type"] = "text/html; charset=utf-8"
         return resp
 
-# -------------- Page Routes & safe rendering --------------
+# ---------------- Page Routes ----------------
 def safe_render(name):
     candidates = [f"{name}.html"]
     if name == "authentication":
@@ -274,7 +263,7 @@ def logo():
     resp.headers['Content-Type'] = 'image/svg+xml'
     return resp
 
-# -------------- API: Auth ----------------
+# ---------------- Auth APIs ----------------
 @app.route("/api/login", methods=["POST"])
 def api_login():
     data = (request.get_json() or {})
@@ -351,30 +340,24 @@ def api_logout():
     resp.delete_cookie("session_token", path="/")
     return resp
 
-# -------------- API: Videos -------------
+# ---------------- Video listing ----------------
 @app.route("/api/videos")
 def api_videos():
     rows = Video.query.order_by(Video.uploaded_at.desc()).all()
     return jsonify([{"id": r.id, "title": r.title, "uploaded_at": r.uploaded_at.isoformat()} for r in rows])
 
-# -------------- Range-capable streaming helper -------------
+# ---------------- Range streaming helper ----------------
 def make_range_response(path, request, download_name=None):
-    """
-    Returns a Response that supports HTTP Range requests for large files.
-    """
     file_size = os.path.getsize(path)
     range_header = request.headers.get('Range', None)
     if range_header:
-        # parse "bytes=start-end"
         try:
             ranges = range_header.strip().split('=')[1]
             if ',' in ranges:
-                # multiple ranges not supported; return full for simplicity
                 start = 0
                 end = file_size - 1
             else:
                 if ranges.startswith('-'):
-                    # suffix: last N bytes
                     length = int(ranges[1:])
                     start = max(file_size - length, 0)
                     end = file_size - 1
@@ -385,7 +368,6 @@ def make_range_response(path, request, download_name=None):
                     start_s, end_s = ranges.split('-')
                     start = int(start_s) if start_s else 0
                     end = int(end_s) if end_s else file_size - 1
-                # clamp
                 start = max(0, min(start, file_size - 1))
                 end = max(0, min(end, file_size - 1))
         except Exception as e:
@@ -420,34 +402,25 @@ def make_range_response(path, request, download_name=None):
         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
         'Content-Range': f'bytes {start}-{end}/{file_size}' if status == 206 else f'bytes 0-{file_size-1}/{file_size}',
     }
-    # CORS for streaming to another origin if FRONTEND_ORIGIN is set and matches request origin
     origin = request.headers.get('Origin')
     if FRONTEND_ORIGIN:
         if origin and origin == FRONTEND_ORIGIN:
             headers['Access-Control-Allow-Origin'] = origin
             headers['Access-Control-Allow-Credentials'] = 'true'
     else:
-        # if no FRONTEND_ORIGIN specified, echo Origin when present (helps cross-origin access)
         if origin:
             headers['Access-Control-Allow-Origin'] = origin
             headers['Access-Control-Allow-Credentials'] = 'true'
 
     rv = Response(generate(), status=status, headers=headers)
-    # add Content-Disposition when download_name provided
     if download_name:
         rv.headers['Content-Disposition'] = f'inline; filename="{download_name}"'
     return rv
 
-# -------------- HLS generation & serving -------------
+# ---------------- HLS creation & serving ----------------
 def create_hls_for_file(src_path, dest_dir, segment_time=6):
-    """
-    Create HLS (m3u8 + .ts segments) from src_path into dest_dir using ffmpeg.
-    Requires ffmpeg installed on the host.
-    Returns True on success, False otherwise.
-    """
     os.makedirs(dest_dir, exist_ok=True)
     playlist = os.path.join(dest_dir, "index.m3u8")
-    # FFmpeg command to produce VOD HLS
     cmd = [
         "ffmpeg", "-y", "-i", src_path,
         "-preset", "veryfast",
@@ -476,7 +449,6 @@ def create_hls_for_file(src_path, dest_dir, segment_time=6):
 
 @app.route("/hls/<int:video_id>/<path:fname>", methods=["GET", "OPTIONS"])
 def serve_hls(video_id, fname):
-    # OPTIONS preflight
     if request.method == "OPTIONS":
         origin = request.headers.get('Origin')
         resp = make_response('', 204)
@@ -504,16 +476,8 @@ def serve_hls(video_id, fname):
         resp.headers['Content-Type'] = 'video/mp2t'
     return resp
 
-# -------------- New: helper to resolve missing video files -------------
+# ---------------- Resolve missing video helper ----------------
 def resolve_video_path(video_obj, attempt_relink=True):
-    """
-    Given a Video row, return absolute path to the file if it exists.
-    If missing and attempt_relink=True, try a safe heuristic:
-      - take the basename after the first '_' if present (old uploads sometimes had a prefix)
-      - scan uploads/ for a file that endswith that basename
-      - if found, update the DB row to point to that file and return the new path
-    Returns (path_or_none, relink_performed_bool, relink_filename_or_None)
-    """
     if not video_obj or not video_obj.filename:
         return None, False, None
     candidate = os.path.join(app.config["UPLOAD_FOLDER"], video_obj.filename)
@@ -522,21 +486,16 @@ def resolve_video_path(video_obj, attempt_relink=True):
     if not attempt_relink:
         return None, False, None
 
-    # Heuristic: try to find a file with same basename (after possible prefix)
     basename = video_obj.filename
     if "_" in basename:
-        # if names used random hex prefix like <hex>_<origname>, take the part after underscore
         basename = basename.split("_", 1)[-1]
-    # scan uploads
     try:
         for fn in os.listdir(app.config["UPLOAD_FOLDER"]):
-            # ignore chunk folder
             if fn == "chunks": continue
+            if fn.startswith("hls_"): continue
             if fn.endswith(basename):
-                # found candidate -> relink
                 new_path = os.path.join(app.config["UPLOAD_FOLDER"], fn)
                 if os.path.exists(new_path):
-                    # update DB row safely
                     try:
                         video_obj.filename = fn
                         db.session.add(video_obj)
@@ -546,13 +505,12 @@ def resolve_video_path(video_obj, attempt_relink=True):
                     except Exception:
                         db.session.rollback()
                         logger.exception("Failed to relink video DB row to %s", fn)
-                        # still return the path for debugging if exists
                         return new_path, False, fn
     except Exception:
         logger.exception("resolve_video_path scan failed")
     return None, False, None
 
-# -------------- Signed URL helpers (new) -------------
+# ---------------- Signed tokens ----------------
 def make_signed_token(video_id, expires_seconds=3600):
     expiry = int(time.time()) + int(expires_seconds)
     msg = f"{video_id}:{expiry}"
@@ -582,31 +540,23 @@ def verify_signed_token(token):
         return False, None
 
 def _extract_session_token_from_request(req):
-    """
-    Try to extract a session token from cookie, Authorization header, X-Session-Token header,
-    or session_token query param. Returns token string or None.
-    """
-    # 1) cookie (preferred)
     token = req.cookies.get("session_token")
     if token:
         return token
-    # 2) Authorization: Bearer <token>
     auth = req.headers.get("Authorization") or req.headers.get("authorization")
     if auth and auth.strip().lower().startswith("bearer "):
         return auth.strip().split(" ", 1)[1].strip()
-    # 3) X-Session-Token header
     xt = req.headers.get("X-Session-Token")
     if xt:
         return xt.strip()
-    # 4) query param
     qt = req.args.get("session_token") or req.values.get("session_token")
     if qt:
         return qt.strip()
     return None
 
+# ---------------- Video token & streaming ----------------
 @app.route("/api/video_token/<int:video_id>")
 def api_video_token(video_id):
-    # Accept session via cookie or fallback headers/params (for edge cases/dev)
     token_val = _extract_session_token_from_request(request)
     s = validate_session(token_val)
     if not s:
@@ -617,13 +567,12 @@ def api_video_token(video_id):
     if not v:
         return jsonify({"success": False, "error": "video_not_found"}), 404
 
-    # ensure the file exists (and attempt safe relink if it doesn't)
     path, relinked, relink_fn = resolve_video_path(v, attempt_relink=True)
     if not path or not os.path.exists(path):
         logger.warning("api_video_token: file missing for video %s (db filename=%s)", video_id, v.filename)
         return jsonify({"success": False, "error": "file_missing", "message": "Video file is missing on server."}), 404
 
-    token = make_signed_token(video_id, expires_seconds=60*60)  # 1 hour
+    token = make_signed_token(video_id, expires_seconds=60*60)
     signed_url = f"/signed_stream/{video_id}?t={token}"
     return jsonify({"success": True, "token": token, "url": signed_url, "relinked": relinked, "relinked_filename": relink_fn})
 
@@ -636,10 +585,8 @@ def signed_stream(video_id):
     v = Video.query.get(video_id)
     if not v:
         return ("Not found", 404)
-
     path, relinked, relink_fn = resolve_video_path(v, attempt_relink=True)
     if not path or not os.path.exists(path):
-        # still missing
         return ("File missing", 404)
     try:
         return make_range_response(path, request, download_name=v.filename)
@@ -649,11 +596,9 @@ def signed_stream(video_id):
 
 @app.route("/stream/<int:video_id>", methods=["GET"])
 def stream_video(video_id):
-    # check session before streaming
     token = request.cookies.get("session_token")
     s = validate_session(token)
     if not s:
-        # return 401 so frontend will handle re-login
         return ("Unauthorized", 401)
     v = Video.query.get(video_id)
     if not v:
@@ -667,7 +612,7 @@ def stream_video(video_id):
         logger.exception("Streaming failed for %s: %s", path, exc)
         return ("Streaming error", 500)
 
-# -------------- API: Admin -------------
+# ---------------- Admin: upload / generate / pins ----------------
 @app.route("/api/admin/upload_video", methods=["POST"])
 def api_admin_upload_video():
     if not admin_auth_ok(request):
@@ -682,7 +627,6 @@ def api_admin_upload_video():
         f.save(path)
         v = Video(title=title, filename=safe_name, uploaded_at=now())
         db.session.add(v); db.session.commit()
-        # Attempt to create HLS (requires ffmpeg)
         hls_dir = os.path.join(app.config["UPLOAD_FOLDER"], f"hls_{v.id}")
         ok = create_hls_for_file(path, hls_dir, segment_time=6)
         if not ok:
@@ -734,10 +678,9 @@ def api_admin_revoke_pin():
     p = Pin.query.get(pin_id)
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
-    # If this is the protected ADMIN_PIN, require explicit confirmation (force:true)
     if p.pin == ADMIN_PIN:
         if not force:
-            return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To revoke the admin PIN, include {\"force\": true} in the request body."}), 409
+            return jsonify({"success": False, "error": "confirm_admin_action_required", "message": "To revoke the admin PIN, include {\"force\": true} in the request body."}), 403
     p.revoked = True
     db.session.add(p); db.session.commit()
     return jsonify({"success": True})
@@ -753,12 +696,12 @@ def api_admin_delete_pin():
     p = Pin.query.get(pin_id)
     if not p:
         return jsonify({"success": False, "error": "pin_not_found"}), 404
-    # PROTECT admin PIN from deletion completely
     if p.pin == ADMIN_PIN:
-        return jsonify({"success": False, "error": "admin_pin_protected", "message": "Admin PIN cannot be deleted."}), 409
+        # Admin PIN is protected and cannot be deleted.
+        return jsonify({"success": False, "error": "admin_pin_protected", "message": "Admin PIN cannot be deleted."}), 403
 
     try:
-        # Remove sessions referencing this pin to avoid FK constraint issues
+        # remove sessions referencing this pin to avoid FK constraint issues
         try:
             Session.query.filter_by(pin_id=p.id).delete(synchronize_session=False)
             db.session.commit()
@@ -775,6 +718,7 @@ def api_admin_delete_pin():
         db.session.rollback()
         return jsonify({"success": False, "error": "delete_failed", "message": str(exc)}), 500
 
+# ---------------- Admin: delete video ----------------
 @app.route("/api/admin/delete_video", methods=["POST"])
 def api_admin_delete_video():
     if not admin_auth_ok(request):
@@ -788,7 +732,6 @@ def api_admin_delete_video():
         return jsonify({"success": False, "error": "video_not_found"}), 404
     filename = v.filename
     path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-    # also remove HLS directory if present
     hls_dir = os.path.join(app.config["UPLOAD_FOLDER"], f"hls_{v.id}")
     try:
         db.session.delete(v)
@@ -809,7 +752,7 @@ def api_admin_delete_video():
         logger.exception("Failed to remove HLS dir %s: %s", hls_dir, exc)
     return jsonify({"success": True})
 
-# Admin file endpoints (upload/list/delete)
+# ---------------- Admin: upload file ----------------
 @app.route("/api/admin/upload_file", methods=["POST"])
 def api_admin_upload_file():
     if not admin_auth_ok(request):
@@ -857,7 +800,7 @@ def view_file(file_id):
     resp.headers["X-Content-Type-Options"] = "nosniff"
     return resp
 
-# -------------- Chunked upload endpoints -------------
+# ---------------- Chunked upload endpoints ----------------
 @app.route("/api/admin/upload_video_chunk", methods=["POST"])
 def api_admin_upload_video_chunk():
     if not admin_auth_ok(request):
@@ -919,13 +862,10 @@ def api_admin_finish_video_upload():
                     shutil.copyfileobj(pf, out_f)
         v = Video(title=title, filename=safe_name, uploaded_at=now())
         db.session.add(v); db.session.commit()
-        # remove chunk dir
         try:
             shutil.rmtree(safe_upload_dir)
         except Exception:
             logger.exception("Failed to remove chunk directory %s", safe_upload_dir)
-
-        # Attempt to create HLS for the assembled file
         hls_dir = os.path.join(app.config["UPLOAD_FOLDER"], f"hls_{v.id}")
         ok = create_hls_for_file(out_path, hls_dir, segment_time=6)
         if not ok:
@@ -941,7 +881,7 @@ def api_admin_finish_video_upload():
             pass
         return jsonify({"success": False, "error": "assemble_failed", "message": str(exc)}), 500
 
-#-------------- API: Payment (keep record but do not attempt SMTP sending) ------------
+# ---------------- Payment proof ----------------
 @app.route("/api/payment/proof", methods=["POST"])
 def api_payment_proof():
     name = request.form.get("name", "")
@@ -950,8 +890,6 @@ def api_payment_proof():
     f = request.files.get("proof")
     if not name or not f:
         return jsonify({"success": False, "error": "missing_fields"}), 400
-
-    # Save to uploads folder (same place as other content)
     safe_name = secrets.token_hex(8) + "_" + secure_filename(f.filename)
     path = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
     try:
@@ -959,8 +897,6 @@ def api_payment_proof():
     except Exception as exc:
         logger.exception("Failed to save proof file: %s", exc)
         return jsonify({"success": False, "error": "save_failed", "message": str(exc)}), 500
-
-    # store payment record
     try:
         pay = Payment(name=name, email=email, course_title=course_title, proof_filename=safe_name, created_at=now())
         db.session.add(pay)
@@ -973,10 +909,9 @@ def api_payment_proof():
         except Exception:
             pass
         return jsonify({"success": False, "error": "db_failed", "message": str(exc)}), 500
-
     return jsonify({"success": True})
 
-# -------------- Video diagnosis endpoint (new) -------------
+# ---------------- Video diagnose (admin & user) ----------------
 @app.route("/api/video_diagnose/<int:video_id>", methods=["GET"])
 def api_video_diagnose(video_id):
     v = Video.query.get(video_id)
@@ -997,12 +932,13 @@ def api_video_diagnose(video_id):
     if exists:
         st = os.stat(path)
         info.update({"file_size": st.st_size, "modified_at": datetime.utcfromtimestamp(st.st_mtime).isoformat()})
-    # also report HLS dir presence
     hls_dir = os.path.join(app.config["UPLOAD_FOLDER"], f"hls_{v.id}")
     info["hls_exists"] = os.path.isdir(hls_dir)
     if info["hls_exists"]:
-        info["hls_files"] = os.listdir(hls_dir)
-    # Also list candidate matches (use the relink heuristic to suggest possible files)
+        try:
+            info["hls_files"] = os.listdir(hls_dir)
+        except Exception:
+            info["hls_files"] = []
     candidates = []
     basename = v.filename
     if "_" in basename:
@@ -1010,14 +946,66 @@ def api_video_diagnose(video_id):
     try:
         for fn in os.listdir(app.config["UPLOAD_FOLDER"]):
             if fn == "chunks": continue
+            if fn.startswith("hls_"): continue
             if fn.endswith(basename):
                 candidates.append(fn)
     except Exception:
         pass
     info["candidates"] = candidates
     return jsonify({"success": True, "diagnose": info})
+# ---------------- Admin helpers: list uploads and relink ----------------
+@app.route("/api/admin/list_uploads", methods=["GET"])
+def api_admin_list_uploads():
+    if not admin_auth_ok(request):
+        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+    files = []
+    try:
+        for fn in os.listdir(app.config["UPLOAD_FOLDER"]):
+            if fn in ("chunks",) or fn.startswith("hls_"):
+                continue
+            path = os.path.join(app.config["UPLOAD_FOLDER"], fn)
+            if os.path.isfile(path):
+                stat = os.stat(path)
+                files.append({"filename": fn, "size": stat.st_size, "modified_at": datetime.utcfromtimestamp(stat.st_mtime).isoformat()})
+    except Exception as exc:
+        logger.exception("list_uploads failed: %s", exc)
+        return jsonify({"success": False, "error": "list_failed", "message": str(exc)}), 500
+    return jsonify({"success": True, "files": files})
 
-# -------------- Health -------------------
+@app.route("/api/admin/relink_video", methods=["POST"])
+def api_admin_relink_video():
+    if not admin_auth_ok(request):
+        return jsonify({"success": False, "error": "admin_auth_required"}), 403
+    data = request.get_json() or {}
+    video_id = data.get("video_id")
+    filename = data.get("filename")
+    if not video_id or not filename:
+        return jsonify({"success": False, "error": "missing_fields"}), 400
+    safe = secure_filename(filename)
+    target = os.path.join(app.config["UPLOAD_FOLDER"], safe)
+    if not os.path.exists(target) or not os.path.isfile(target):
+        return jsonify({"success": False, "error": "file_not_found", "message": f"{safe} not found"}), 404
+    v = Video.query.get(video_id)
+    if not v:
+        return jsonify({"success": False, "error": "video_not_found"}), 404
+    try:
+        old = v.filename
+        v.filename = safe
+        db.session.add(v)
+        db.session.commit()
+        # Try creating HLS for relinked file (best-effort)
+        hls_dir = os.path.join(app.config["UPLOAD_FOLDER"], f"hls_{v.id}")
+        ok = create_hls_for_file(target, hls_dir, segment_time=6)
+        if not ok:
+            logger.warning("HLS creation failed for relinked video id %s", v.id)
+            return jsonify({"success": True, "video_id": v.id, "old_filename": old, "new_filename": v.filename, "warning": "hls_creation_failed"})
+        return jsonify({"success": True, "video_id": v.id, "old_filename": old, "new_filename": v.filename, "hls": True})
+    except Exception as exc:
+        logger.exception("relink_video failed: %s", exc)
+        db.session.rollback()
+        return jsonify({"success": False, "error": "relink_failed", "message": str(exc)}), 500
+
+# ---------------- Health ----------------
 @app.route("/api/health")
 def health():
     try:
@@ -1027,7 +1015,8 @@ def health():
         logger.exception("Health check failed")
         return jsonify({"ok": False, "error": str(e)}), 500
 
-# --------------- Run ---------------------
+# ---------------- Run ----------------
 if __name__ == "__main__":
     debug_flag = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(debug=debug_flag, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
