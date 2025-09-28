@@ -4,7 +4,6 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Courses — Crypto Training</title>
 <link rel="icon" href=" https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg  ">
-
 <style>
   body{font-family:system-ui;margin:0;background:linear-gradient(180deg,#031025,#071024);color:#e6eef8}
   header{display:flex;align-items:center;gap:12px;padding:12px;background:linear-gradient(90deg,#06203a,#08304d);}
@@ -202,50 +201,83 @@
         }
         // set video.src to signed URL (absolute)
         const signedUrl = ORIGIN + tokenRes.url;
-        // Clear any existing Hls or blob src
         try { if(vid._hls){ vid._hls.destroy(); vid._hls = null; } } catch(e){}
         try { URL.revokeObjectURL(vid.src); } catch(e){}
         vid.removeAttribute('src');
-        // Assign signed URL directly — Range streaming will be used (no cookies necessary)
+
         vid.src = signedUrl;
         // hide precard overlay
         precard.style.display = 'none';
         status.innerText = 'Starting playback...';
         try{
           await vid.play();
-          // success
           status.innerText = '';
         } catch(e){
-          console.warn('Auto-play failed, user gesture required', e);
+          // user gesture may be required — leave status quiet
           status.innerText = '';
         } finally {
           vid._starting = false;
         }
       }
 
-      // attach error handler for clear messages
+      // NEW: Robust error handler — try refreshing a signed URL once before reporting "missing"
+      vid._errorRetries = 0;
       vid.addEventListener('error', async (ev)=>{
         console.warn('video element error', ev);
-        // best attempt to surface meaningful info: try a HEAD/GET to signed stream to see status
-        const dataSrc = vid.src || vid.getAttribute('data-src');
-        if(dataSrc){
-          try {
-            const r = await fetch(dataSrc, { method:'HEAD' });
-            if(r.status === 401){
-              await showModal('Login required','Please login to watch this video. Redirecting to login.');
-              location.href='/'; return;
-            }
-            if(r.status === 404){
-              status.classList.add('error'); status.innerText = 'Video missing on server.';
-              return;
-            }
-            status.classList.add('error'); status.innerText = 'Playback failed. Contact admin.';
-          } catch(e){
-            console.error('error diagnostic failed', e);
-            status.classList.add('error'); status.innerText = 'Playback failed (network).';
+        // limit retries to 1 to avoid loops
+        if(vid._errorRetries >= 1){
+          status.classList.add('error');
+          status.innerText = 'Playback failed. If the video was recently uploaded, try refreshing the page or re-login.';
+          return;
+        }
+        vid._errorRetries += 1;
+        status.classList.remove('error');
+        status.innerText = 'Playback error detected — attempting to refresh playback URL...';
+
+        // ask server for a fresh signed URL and retry
+        const tokenRes = await requestSignedUrl(v.id);
+        if(!tokenRes.ok){
+          if(tokenRes.status === 401){
+            await showModal('Login required','Please login again to watch videos. Redirecting to login.');
+            location.href = '/';
+            return;
           }
-        } else {
-          status.classList.add('error'); status.innerText = 'Playback failed.';
+          if(tokenRes.status === 404){
+            status.classList.add('error');
+            status.innerText = 'Video missing on server.';
+            return;
+          }
+          status.classList.add('error');
+          status.innerText = 'Unable to refresh playback URL (status: ' + (tokenRes.status || 'network') + ').';
+          return;
+        }
+
+        // got new signed URL — apply it and attempt to play
+        const newSigned = ORIGIN + tokenRes.url;
+        try {
+          // clean up any existing hls instance
+          try { if(vid._hls){ vid._hls.destroy(); vid._hls = null; } } catch(e){}
+          // replace src, then try to play
+          vid.pause();
+          vid.removeAttribute('src');
+          try { URL.revokeObjectURL(vid.src); } catch(e){}
+          vid.src = newSigned;
+          // small delay to let the element reset
+          setTimeout(async ()=>{
+            status.innerText = 'Retrying playback...';
+            try{
+              await vid.play();
+              status.innerText = '';
+            } catch(e){
+              console.warn('play after token refresh failed', e);
+              status.classList.add('error');
+              status.innerText = 'Playback retry failed. Contact admin.';
+            }
+          }, 250);
+        } catch(e){
+          console.error('Retrying playback failed', e);
+          status.classList.add('error');
+          status.innerText = 'Playback retry failed. Contact admin.';
         }
       });
 
