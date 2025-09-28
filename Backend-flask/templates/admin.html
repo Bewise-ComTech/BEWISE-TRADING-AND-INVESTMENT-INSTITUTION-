@@ -1,473 +1,332 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Admin Panel — Crypto Training</title>
-<link rel="icon" href="/logo.png">
-<style>
-  :root{ --bg:#071024; --card:#062035; --accent:#06b6d4; --danger:#ef4444; color-scheme: dark; }
-  body{ margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; background:linear-gradient(180deg,#031025,#071024); color:#e6eef8 }
-  header{ display:flex; align-items:center; gap:12px; padding:14px; background:linear-gradient(90deg,#06203a,#08304d) }
-  .logo{ height:36px }
-  .container{ padding:18px; max-width:1100px; margin:18px auto }
-  .row{ display:grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap:12px; margin-bottom:12px }
-  .card{ background:var(--card); padding:12px; border-radius:12px; box-shadow:0 8px 20px rgba(2,6,23,0.6) }
-  input,textarea,select{ width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:inherit; box-sizing:border-box }
-  button{ padding:10px 12px; border-radius:8px; border:0; background:var(--accent); color:#042a2b; font-weight:700; cursor:pointer }
-  button.danger{ background:var(--danger); color:white }
-  table{ width:100%; border-collapse:collapse; margin-top:10px }
-  th,td{ padding:8px; border-bottom:1px solid rgba(255,255,255,0.04); text-align:left; font-size:13px }
-  th.sortable { cursor:pointer; user-select:none; }
-  th .sort-ind { margin-left:6px; font-size:11px; opacity:0.9; }
-  .hint{ margin-top:8px; font-size:13px; opacity:0.9 }
-  .error { color: #ffb4b4; }
-  .ok { color: #baf7ff; }
-  .small-muted { font-size:12px; opacity:0.85; }
-  .modal-backdrop{ position:fixed; inset:0; background:rgba(2,6,23,0.6); display:none; align-items:center; justify-content:center; z-index:9999; }
-  .modal-panel{ background:#0b1220; padding:18px; border-radius:10px; width:96%; max-width:520px; box-shadow:0 12px 40px rgba(0,0,0,0.6); color:#e6eef8 }
-  .btn-small { padding:6px 8px; font-size:13px; border-radius:8px; }
-  .btn-muted { background:#6b7280; color:#fff; border:0; }
-  .spinner { display:inline-block; width:14px; height:14px; border-radius:50%; border:2px solid rgba(255,255,255,0.12); border-top-color: var(--accent); animation: spin 1s linear infinite; vertical-align:middle; margin-left:8px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .small-toolbar { display:flex; gap:8px; align-items:center; }
-  .search-input { width:220px; padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:inherit }
-  .muted { opacity:0.85; font-size:13px; }
-  .top-actions { display:flex; gap:8px; align-items:center; }
-  .hidden { display:none!important; }
-</style>
-</head>
-<body>
-<header>
-  <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" class="logo" alt="logo">
-  <div><div style="font-weight:700">BEWISE TRADING AND INVESTMENT INSTITUTION</div></div>
-</header>
-<div class="container" id="app">
-  <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:12px">
-    <div class="hint">Admin access is session-protected (cookie). You must login from / first.</div>
-    <div class="top-actions">
-      <button id="btnRefresh">Refresh</button>
-      <button id="btnLogout" class="danger">Logout</button>
-    </div>
-  </div>
 
-  <div class="row">
-    <div class="card">
-      <h3 style="margin:0 0 8px">Generate PIN</h3>
-      <label class="hint">Note (student name or email)</label>
-      <input id="noteInput" placeholder="e.g. John Doe / john@example.com">
-      <button id="btnGenerate">Generate 6-digit PIN<span id="genSpinner" class="spinner hidden"></span></button>
-      <div id="generateResult" class="hint"></div>
-    </div>
+<html lang="en">    
+<head>    
+<meta charset="utf-8" />    
+<meta name="viewport" content="width=device-width,initial-scale=1" />    
+<title>Admin Panel — Crypto Training</title>    
+<link rel="icon" href="/logo.png">    
+<style>    
+  :root{ --bg:#071024; --card:#062035; --accent:#06b6d4; --danger:#ef4444; color-scheme: dark; }    
+  body{ margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; background:linear-gradient(180deg,#031025,#071024); color:#e6eef8 }    
+  header{ display:flex; align-items:center; gap:12px; padding:14px; background:linear-gradient(90deg,#06203a,#08304d) }    
+  .logo{ height:36px }    
+  .container{ padding:18px; max-width:1100px; margin:18px auto }    
+  .row{ display:grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap:12px; margin-bottom:12px }    
+  .card{ background:var(--card); padding:12px; border-radius:12px; box-shadow:0 8px 20px rgba(2,6,23,0.6) }    
+  input,textarea,select{ width:100%; padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:transparent; color:inherit; box-sizing:border-box }    
+  button{ padding:10px 12px; border-radius:8px; border:0; background:var(--accent); color:#042a2b; font-weight:700; cursor:pointer }    
+  button.danger{ background:var(--danger); color:white }    
+  table{ width:100%; border-collapse:collapse; margin-top:10px }    
+  th,td{ padding:8px; border-bottom:1px solid rgba(255,255,255,0.04); text-align:left; font-size:13px }    
+  .hint{ margin-top:8px; font-size:13px; opacity:0.9 }    
+  .error { color: #ffb4b4; }    
+  .ok { color: #baf7ff; }    
+  .small-muted { font-size:12px; opacity:0.85; }    
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(2,6,23,0.6); display:none; align-items:center; justify-content:center; z-index:9999; }    
+  .modal-panel{ background:#0b1220; padding:18px; border-radius:10px; width:96%; max-width:520px; box-shadow:0 12px 40px rgba(0,0,0,0.6); color:#e6eef8 }    
+  .btn-small { padding:6px 8px; font-size:13px; border-radius:8px; }    
+  .btn-muted { background:#6b7280; color:#fff; border:0; }    
+  .relink-file { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px; border-radius:8px; background:rgba(255,255,255,0.02); margin-bottom:6px; }
+  .relink-name { font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .relink-btn { padding:6px 8px; border-radius:8px; background:var(--accent); color:#042a2b; border:0; cursor:pointer; font-weight:700 }
+</style>    
+</head>    
+<body>    
+<header>    
+  <img src="https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" class="logo" alt="logo">    
+  <div><div style="font-weight:700">BEWISE TRADING AND INVESTMENT INSTITUTION</div></div>    
+</header>    <div class="container" id="app">    
+  <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:12px">    
+    <div class="hint">Admin access is session-protected (cookie). You must login from / first.</div>    
+    <div class="top-actions">    
+      <button id="btnRefresh">Refresh</button>    
+      <button id="btnLogout" class="danger">Logout</button>    
+    </div>    
+  </div>      <div class="row">    
+    <div class="card">    
+      <h3 style="margin:0 0 8px">Generate PIN</h3>    
+      <label class="hint">Note (student name or email)</label>    
+      <input id="noteInput" placeholder="e.g. John Doe / john@example.com">    
+      <button id="btnGenerate">Generate 6-digit PIN</button>    
+      <div id="generateResult" class="hint"></div>    
+    </div>    <div class="card">    
+  <h3 style="margin:0 0 8px">Upload Video</h3>    
+  <label class="hint">Video Title</label>    
+  <input id="videoTitle" placeholder="Lesson 1 - Intro">    
+  <label class="hint">Video File</label>    
+  <input id="videoFile" type="file" accept="video/*">    
+  <button id="btnUpload">Upload Video</button>    
+  <div id="uploadResult" class="hint"></div>    
 
-    <div class="card">
-      <h3 style="margin:0 0 8px">Upload Video</h3>
-      <label class="hint">Video Title</label>
-      <input id="videoTitle" placeholder="Lesson 1 - Intro">
-      <label class="hint">Video File</label>
-      <input id="videoFile" type="file" accept="video/*">
-      <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
-        <button id="btnUpload">Upload Video</button>
-        <div id="uploadResult" class="hint muted"></div>
-      </div>
+  <hr style="margin:12px 0;border:none;border-top:1px solid rgba(255,255,255,0.04)">    
 
-      <hr style="margin:12px 0;border:none;border-top:1px solid rgba(255,255,255,0.04)">
-
-      <h4 style="margin:0 0 8px">Upload File (any file)</h4>
-      <label class="hint">File Title / Note</label>
-      <input id="fileTitle" placeholder="Resource name">
-      <label class="hint">File</label>
-      <input id="anyFile" type="file" accept="*/*">
-      <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
-        <button id="btnUploadFile">Upload File</button>
-        <div id="uploadFileResult" class="hint muted"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="row">
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0 0 8px">Active PINs</h3>
-        <div class="small-toolbar">
-          <input id="pinsSearch" class="search-input" placeholder="Search pins / notes / device">
-          <div id="pinsCount" class="muted"></div>
-        </div>
-      </div>
-      <div id="pinsArea">Loading pins...</div>
-    </div>
-
-    <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h3 style="margin:0 0 8px">Uploaded Videos</h3>
-        <div class="small-toolbar">
-          <input id="videosSearch" class="search-input" placeholder="Search title">
-          <div id="videosCount" class="muted"></div>
-        </div>
-      </div>
-      <div id="videosArea">Loading videos...</div>
-    </div>
-  </div>
+  <h4 style="margin:0 0 8px">Upload File (any file)</h4>    
+  <label class="hint">File Title / Note</label>    
+  <input id="fileTitle" placeholder="Resource name">    
+  <label class="hint">File</label>    
+  <input id="anyFile" type="file" accept="*/*">    
+  <button id="btnUploadFile">Upload File</button>    
+  <div id="uploadFileResult" class="hint"></div>    
 </div>
 
-<div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
-  <div class="modal-panel">
-    <div id="modalTitle" style="font-weight:800;margin-bottom:8px">Title</div>
-    <div id="modalBody" style="margin-bottom:12px"></div>
-    <div style="text-align:right"><button id="modalOk" class="btn-small">OK</button></div>
-  </div>
+  </div>      <div class="row">    
+    <div class="card">    
+      <h3 style="margin:0 0 8px">Active PINs</h3>    
+      <div id="pinsArea">Loading pins...</div>    
+    </div>    <div class="card">    
+  <h3 style="margin:0 0 8px">Uploaded Videos</h3>    
+  <div id="videosArea">Loading videos...</div>    
 </div>
 
-<script>
-(async function(){
-  // config
-  const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';
-  const RENDER_BASE = 'https://' + RENDER_HOST;
-  const RENDER_API = RENDER_BASE + '/api';
-  const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_API;
-  const UI_BASE = (location.hostname === RENDER_HOST) ? '' : RENDER_BASE;
+  </div>    
+</div>    
+<div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">    
+  <div class="modal-panel">    
+    <div id="modalTitle" style="font-weight:800;margin-bottom:8px">Title</div>    
+    <div id="modalBody" style="margin-bottom:12px"></div>    
+    <div style="text-align:right"><button id="modalOk" class="btn-small">OK</button></div>    
+  </div>    
+</div>    
+<script>    
+(async function(){    
+  const RENDER_HOST = 'bewise-trading-and-investment-institution-k7ue.onrender.com';    
+  const RENDER_BASE = 'https://' + RENDER_HOST;    
+  const RENDER_API = RENDER_BASE + '/api';    
+  const API = (location.hostname === RENDER_HOST) ? '/api' : RENDER_API;    
+  const UI_BASE = (location.hostname === RENDER_HOST) ? '' : RENDER_BASE;    
 
-  // DOM refs
-  const pinsArea = document.getElementById('pinsArea'), videosArea = document.getElementById('videosArea'),
-        btnGenerate = document.getElementById('btnGenerate'), noteInput = document.getElementById('noteInput'),
-        generateResult = document.getElementById('generateResult'), btnUpload = document.getElementById('btnUpload'),
-        videoTitle = document.getElementById('videoTitle'), videoFile = document.getElementById('videoFile'),
-        uploadResult = document.getElementById('uploadResult'), btnRefresh = document.getElementById('btnRefresh'),
-        btnLogout = document.getElementById('btnLogout'), btnUploadFile = document.getElementById('btnUploadFile'),
-        anyFile = document.getElementById('anyFile'), fileTitle = document.getElementById('fileTitle'),
-        uploadFileResult = document.getElementById('uploadFileResult'), genSpinner = document.getElementById('genSpinner'),
-        pinsSearch = document.getElementById('pinsSearch'), videosSearch = document.getElementById('videosSearch'),
-        pinsCount = document.getElementById('pinsCount'), videosCount = document.getElementById('videosCount');
+  const pinsArea = document.getElementById('pinsArea'), videosArea = document.getElementById('videosArea'),    
+        btnGenerate = document.getElementById('btnGenerate'), noteInput = document.getElementById('noteInput'),    
+        generateResult = document.getElementById('generateResult'), btnUpload = document.getElementById('btnUpload'),    
+        videoTitle = document.getElementById('videoTitle'), videoFile = document.getElementById('videoFile'),    
+        uploadResult = document.getElementById('uploadResult'), btnRefresh = document.getElementById('btnRefresh'),    
+        btnLogout = document.getElementById('btnLogout'), btnUploadFile = document.getElementById('btnUploadFile'),    
+        anyFile = document.getElementById('anyFile'), fileTitle = document.getElementById('fileTitle'),    
+        uploadFileResult = document.getElementById('uploadFileResult');    
 
-  const modalBackdrop = document.getElementById('modalBackdrop'), modalTitle = document.getElementById('modalTitle'),
-        modalBody = document.getElementById('modalBody'), modalOk = document.getElementById('modalOk');
+  const modalBackdrop = document.getElementById('modalBackdrop'), modalTitle = document.getElementById('modalTitle'), modalBody = document.getElementById('modalBody'), modalOk = document.getElementById('modalOk');    
 
-  function showMessage(title, message){
-    modalTitle.innerText = title;
-    modalBody.innerText = (typeof message === 'string') ? message : JSON.stringify(message);
-    modalBackdrop.style.display = 'flex';
-    return new Promise((res)=>{ modalOk.onclick = ()=>{ modalBackdrop.style.display='none'; res(true); }; });
-  }
+  function showMessage(title, message){ 
+    modalTitle.innerText = title; 
+    // accept both strings and objects
+    modalBody.innerText = (typeof message === 'string') ? message : JSON.stringify(message); 
+    modalBackdrop.style.display = 'flex'; 
+    return new Promise((res)=>{ modalOk.onclick = ()=>{ modalBackdrop.style.display='none'; res(true); }; }); 
+  }    
 
-  function showSpinnerOn(el){ if(!el) return; let s = el.querySelector('.spinner'); if(!s){ s = document.createElement('span'); s.className='spinner'; el.appendChild(s);} s.classList.remove('hidden'); }
-  function hideSpinnerOn(el){ if(!el) return; const s = el.querySelector('.spinner'); if(s) s.classList.add('hidden'); }
+  async function apiFetch(path, opts = {}){    
+    const url = API + path;    
+    const finalOpts = Object.assign({ credentials: 'include' }, opts);    
+    try {    
+      const res = await fetch(url, finalOpts);    
+      if(res.status === 401 || res.status === 403){    
+        await showMessage('Unauthorized', 'Session expired or not authorized. Redirecting to login.');    
+        window.location.href = UI_BASE + '/';    
+        throw new Error('unauthorized');    
+      }    
+      return res;    
+    } catch(err){    
+      console.error('apiFetch error', url, err); throw err;    
+    }    
+  }    
 
-  // safe JSON parse helper
-  async function safeParseJson(resp){
-    try { return await resp.json(); } catch(e){ return null; }
-  }
+  async function checkSession(){    
+    try{    
+      const r = await apiFetch('/check_session');    
+      const j = await r.json();    
+      return j;    
+    }catch(e){ return { logged_in:false }; }    
+  }    
 
-  // API fetch: only auto-redirect on 401. For 403/409 let callers handle business rules.
-  async function apiFetch(path, opts = {}){
-    const url = API + path;
-    const finalOpts = Object.assign({ credentials: 'include' }, opts);
-    try {
-      const res = await fetch(url, finalOpts);
-      if(res.status === 401){
-        await showMessage('Unauthorized', 'Session expired or not authorized. Redirecting to login.');
-        window.location.href = UI_BASE + '/';
-        throw new Error('unauthorized');
-      }
-      return res;
-    } catch(err){
-      console.error('apiFetch error', url, err);
-      throw err;
-    }
-  }
+  const session = await checkSession();    
+  if(!session.logged_in || !session.is_admin){    
+    await showMessage('Admin required', 'Admin access requires you to login with admin PIN (811335) on this device first. Redirecting to login.');    
+    window.location.href = UI_BASE + '/';    
+    return;    
+  }    
 
-  // session check
-  async function checkSession(){
-    try{
-      const r = await apiFetch('/check_session');
-      const j = await safeParseJson(r) || {};
-      return j;
-    }catch(e){ return { logged_in:false }; }
-  }
+  async function loadPins(){    
+    pinsArea.innerText = 'Loading pins...';    
+    try {    
+      const r = await apiFetch('/admin/pins');    
+      const j = await r.json();    
+      if(!Array.isArray(j)){ pinsArea.innerHTML = '<div class="error">Failed to load pins</div>'; return; }    
+      const table = document.createElement('table');    
+      table.innerHTML = '<thead><tr><th>ID</th><th>PIN</th><th>Note</th><th>Device</th><th>IP</th><th>Revoked</th><th>Action</th></tr></thead>';    
+      const tbody = document.createElement('tbody');    
+      j.forEach(p => {    
+        const tr = document.createElement('tr');    
+        tr.innerHTML = `<td>${p.id}</td><td>${p.pin}</td><td>${p.note||''}</td><td style="max-width:180px;word-break:break-word">${p.device_id||''}</td><td>${p.ip||''}</td><td>${p.revoked? 'YES':''}</td>`;    
+        const td = document.createElement('td');    
 
-  const session = await checkSession();
-  if(!session.logged_in || !session.is_admin){
-    await showMessage('Admin required', 'Admin access requires you to login with admin PIN (811335) on this device first. Redirecting to login.');
-    window.location.href = UI_BASE + '/';
-    return;
-  }
+        if(!p.revoked){    
+          const btn = document.createElement('button');    
+          btn.className = 'btn-small';    
+          btn.innerText = 'Revoke';    
+          btn.addEventListener('click', async ()=>{    
+            const ok = confirm('Revoke PIN ' + p.pin + ' ?');    
+            if(!ok) return;    
+            btn.disabled = true;    
+            try {    
+              const rr = await apiFetch('/admin/revoke_pin', {    
+                method:'POST',    
+                headers: {'Content-Type':'application/json'},    
+                body: JSON.stringify({ pin_id: p.id })    
+              });    
+              const jr = await rr.json();    
+              if(rr.ok && jr.success){    
+                await showMessage('Info','PIN revoked');    
+                loadPins();    
+              } else {    
+                await showMessage('Error','Failed to revoke: ' + (jr.error || jr.message || 'server'));    
+              }    
+            } catch(err){ await showMessage('Network', 'Network error while revoking'); console.error(err); }    
+            btn.disabled = false;    
+          });    
+          td.appendChild(btn);    
+        } else {    
+          const span = document.createElement('span'); span.innerText = '-'; td.appendChild(span);    
+        }    
 
-  // GLOBAL state for pins & videos (for sorting and searching)
-  window.latestPins = [];
-  window.latestVideos = [];
-  const pinsState = { sortKey: 'created_at', sortDir: -1 }; // -1 desc, 1 asc
-  const videosState = { sortKey: 'uploaded_at', sortDir: -1 };
+        const del = document.createElement('button'); del.className='btn-small btn-muted'; del.style.marginLeft='8px'; del.innerText='Delete';    
+        del.addEventListener('click', async ()=>{    
+          const ok = confirm('Delete PIN record?');    
+          if(!ok) return;    
+          del.disabled = true;    
+          try {    
+            const rr = await apiFetch('/admin/delete_pin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pin_id: p.id })});    
+            if(rr.status === 404){    
+              await showMessage('Error','Delete endpoint not available on server.');    
+            } else {    
+              const jr = await rr.json();    
+              if(rr.ok && jr.success){ await showMessage('Info','Deleted'); loadPins(); } else { await showMessage('Error','Failed to delete: ' + (jr.error || jr.message || 'server')); }    
+            }    
+          } catch(err){ await showMessage('Network','Network error while deleting PIN'); console.error(err); }    
+          del.disabled = false;    
+        });    
+        td.appendChild(del);    
 
-  // Render helpers (pins)
-  function renderPins(){
-    const q = (pinsSearch.value||'').toLowerCase().trim();
-    let rows = window.latestPins.slice();
-    if(q){
-      rows = rows.filter(p => (p.pin||'').toLowerCase().includes(q) || (p.note||'').toLowerCase().includes(q) || (p.device_id||'').toLowerCase().includes(q) || (p.ip||'').toLowerCase().includes(q));
-    }
-    // sort
-    rows.sort((a,b) => {
-      const k = pinsState.sortKey;
-      let va = a[k] || '';
-      let vb = b[k] || '';
-      // parse dates for date keys
-      if(k === 'created_at' || k === 'assigned_at'){
-        va = a[k] ? Date.parse(a[k]) : 0;
-        vb = b[k] ? Date.parse(b[k]) : 0;
-      }
-      if(va < vb) return -1 * pinsState.sortDir;
-      if(va > vb) return 1 * pinsState.sortDir;
-      return 0;
-    });
+        tr.appendChild(td);    
+        tbody.appendChild(tr);    
+      });    
+      table.appendChild(tbody);    
+      pinsArea.innerHTML = '';    
+      pinsArea.appendChild(table);    
+    } catch(e){ pinsArea.innerHTML = '<div class="error">Error loading pins</div>'; console.error('loadPins error', e); }    
+  }    
 
-    pinsCount.innerText = `Showing ${rows.length} / ${window.latestPins.length}`;
-    // build table
-    const table = document.createElement('table');
-    table.innerHTML = `<thead>
-      <tr>
-        <th class="sortable" data-key="id">ID <span class="sort-ind"></span></th>
-        <th class="sortable" data-key="pin">PIN <span class="sort-ind"></span></th>
-        <th class="sortable" data-key="note">Note <span class="sort-ind"></span></th>
-        <th class="sortable" data-key="device_id">Device <span class="sort-ind"></span></th>
-        <th class="sortable" data-key="ip">IP <span class="sort-ind"></span></th>
-        <th class="sortable" data-key="revoked">Revoked <span class="sort-ind"></span></th>
-        <th>Action</th>
-      </tr>
-    </thead>`;
-    const tbody = document.createElement('tbody');
+  async function loadVideos(){    
+    videosArea.innerText = 'Loading videos...';    
+    try {    
+      const r = await apiFetch('/videos');    
+      const j = await r.json();    
+      if(!Array.isArray(j)){ videosArea.innerHTML = '<div class="error">Failed to load videos</div>'; return; }    
+      const table = document.createElement('table');    
+      table.innerHTML = '<thead><tr><th>ID</th><th>Title</th><th>Uploaded</th><th>Action</th></tr></thead>';    
+      const tbody = document.createElement('tbody');    
+      j.forEach(v => {    
+        const tr = document.createElement('tr');    
+        tr.innerHTML = `<td>${v.id}</td><td>${v.title}</td><td>${v.uploaded_at||''}</td>`;    
+        const td = document.createElement('td');    
+        const del = document.createElement('button'); del.className='btn-small btn-muted'; del.innerText='Delete';    
+        del.addEventListener('click', async ()=>{    
+          const ok = confirm('Delete video "' + v.title + '" ?');    
+          if(!ok) return;    
+          del.disabled = true;    
+          try {    
+            const rr = await apiFetch('/admin/delete_video', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ video_id: v.id })});    
+            if(rr.status === 404) await showMessage('Error','Delete endpoint not available on server.');    
+            else {    
+              const jr = await rr.json();    
+              if(rr.ok && jr.success){ await showMessage('Info','Deleted'); loadVideos(); } else { await showMessage('Error','Failed to delete: ' + (jr.error || jr.message || 'server')); }    
+            }    
+          } catch(err){ await showMessage('Network','Network error while deleting video'); console.error(err); }    
+          del.disabled = false;    
+        });    
+        td.appendChild(del);    
 
-    rows.forEach(p => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${p.id}</td><td>${p.pin}</td><td>${p.note||''}</td><td style="max-width:180px;word-break:break-word">${p.device_id||''}</td><td>${p.ip||''}</td><td>${p.revoked? 'YES':''}</td>`;
-      const td = document.createElement('td');
-
-      // Revoke button (only shown when not revoked)
-      if(!p.revoked){
-        const btn = document.createElement('button');
-        btn.className = 'btn-small'; btn.innerText = 'Revoke';
-        btn.addEventListener('click', async ()=>{
-          const ok = confirm('Revoke PIN ' + p.pin + ' ?');
-          if(!ok) return;
-          btn.disabled = true;
+        // --- NEW: Relink button (admin only) ---
+        const rel = document.createElement('button'); rel.className='btn-small'; rel.style.marginLeft='8px'; rel.innerText='Relink';
+        rel.addEventListener('click', async ()=>{
+          // open modal that lists files in uploads and allow picking one to relink this video to
           try {
-            // initial attempt
-            const rr = await apiFetch('/admin/revoke_pin', {
-              method:'POST',
-              headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({ pin_id: p.id })
-            });
-            // if business rule confirmation required -> 409 + JSON error
-            if(rr.status === 409){
-              const jr = await safeParseJson(rr);
-              if(jr && jr.error === 'confirm_admin_action_required'){
-                const confirmForce = confirm('This is the protected admin PIN. To revoke it you must confirm this action. Confirm revoke?');
-                if(confirmForce){
-                  // resend with force:true
-                  const rr2 = await apiFetch('/admin/revoke_pin', {
-                    method:'POST',
-                    headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ pin_id: p.id, force: true })
-                  });
-                  const jr2 = await safeParseJson(rr2) || {};
-                  if(rr2.ok && jr2.success){ await showMessage('Info','PIN revoked'); await loadPins(); }
-                  else { await showMessage('Error','Failed to revoke: ' + (jr2.error || jr2.message || 'server')); }
-                } else {
-                  await showMessage('Cancelled','Revoke cancelled.');
-                }
-                btn.disabled = false;
-                return;
-              }
-            }
-            // generic handling
-            const jr = await safeParseJson(rr) || {};
-            if(rr.ok && jr.success){
-              await showMessage('Info','PIN revoked');
-              loadPins();
-            } else {
-              await showMessage('Error','Failed to revoke: ' + (jr.error || jr.message || ('status ' + rr.status)));
-            }
-          } catch(err){
-            console.error(err);
-            await showMessage('Network', 'Network error while revoking');
-          }
-          btn.disabled = false;
-        });
-        td.appendChild(btn);
-      } else {
-        const span = document.createElement('span'); span.innerText = '-'; td.appendChild(span);
-      }
+            modalTitle.innerText = 'Relink video ' + v.id;
+            modalBody.innerHTML = '<div class="hint">Loading uploads...</div>';
+            modalBackdrop.style.display = 'flex';
 
-      // Delete button (works with admin confirm flow)
-      const del = document.createElement('button'); del.className='btn-small btn-muted'; del.style.marginLeft='8px'; del.innerText='Delete';
-      del.addEventListener('click', async ()=>{
-        const ok = confirm('Delete PIN record?');
-        if(!ok) return;
-        del.disabled = true;
-        try {
-          const rr = await apiFetch('/admin/delete_pin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pin_id: p.id })});
-          // If backend requires confirmation for admin pin, it will return 409 + JSON { error: 'confirm_admin_action_required' }
-          if(rr.status === 409){
-            const jr = await safeParseJson(rr);
-            if(jr && jr.error === 'confirm_admin_action_required'){
-              const confirmForce = confirm('This is the protected admin PIN. To delete it confirm this action. Delete anyway?');
-              if(confirmForce){
-                const rr2 = await apiFetch('/admin/delete_pin', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pin_id: p.id, force: true })});
-                const jr2 = await safeParseJson(rr2) || {};
-                if(rr2.ok && jr2.success){ await showMessage('Info','Deleted'); loadPins(); }
-                else { await showMessage('Error','Failed to delete: ' + (jr2.error || jr2.message || ('status ' + rr2.status))); }
-              } else {
-                await showMessage('Cancelled','Delete cancelled.');
-              }
-              del.disabled = false;
+            const rr = await apiFetch('/admin/list_uploads');
+            const jr = await rr.json();
+            if(!rr.ok || !jr.success){
+              modalBody.innerText = 'Failed to list uploads: ' + (jr && (jr.error||jr.message) || rr.status);
+              modalOk.onclick = ()=>{ modalBackdrop.style.display='none'; };
               return;
             }
-          }
+            const files = jr.files || [];
+            if(files.length === 0){
+              modalBody.innerHTML = '<div class="hint">No files found in uploads/</div>';
+              modalOk.onclick = ()=>{ modalBackdrop.style.display='none'; };
+              return;
+            }
+            // build file list UI
+            const list = document.createElement('div');
+            files.forEach(f => {
+              const row = document.createElement('div'); row.className='relink-file';
+              const name = document.createElement('div'); name.className='relink-name'; name.title = f.filename; name.innerText = f.filename;
+              const btn = document.createElement('button'); btn.className='relink-btn'; btn.innerText='Use this file';
+              btn.addEventListener('click', async ()=>{
+                if(!confirm('Attach "' + f.filename + '" to video ID ' + v.id + ' ?')) return;
+                btn.disabled = true;
+                try {
+                  const r2 = await apiFetch('/admin/relink_video', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ video_id: v.id, filename: f.filename })});
+                  const j2 = await r2.json();
+                  if(r2.ok && j2.success){
+                    await showMessage('Relinked','Video updated to ' + f.filename);
+                    modalBackdrop.style.display = 'none';
+                    loadVideos();
+                  } else {
+                    await showMessage('Error','Relink failed: ' + (j2.error||j2.message||'server'));
+                  }
+                } catch(err){ console.error('relink error', err); await showMessage('Network','Network error while relinking'); }
+                btn.disabled = false;
+              });
+              row.appendChild(name); row.appendChild(btn); list.appendChild(row);
+            });
+            modalBody.innerHTML = ''; modalBody.appendChild(list);
+            // default modal OK closes
+            modalOk.onclick = ()=>{ modalBackdrop.style.display='none'; };
+          } catch(e){ console.error('Relink open error', e); await showMessage('Error','Failed to open relink UI'); }
+        });
+        td.appendChild(rel);
+        // --- end relink ---
 
-          // otherwise parse json and handle
-          const jr = await safeParseJson(rr) || {};
-          if(rr.ok && jr.success){
-            await showMessage('Info','Deleted');
-            loadPins();
-          } else {
-            await showMessage('Error','Failed to delete: ' + (jr.error || jr.message || ('status ' + rr.status)));
-          }
-        } catch(err){
-          console.error(err);
-          await showMessage('Network','Network error while deleting PIN');
-        }
-        del.disabled = false;
-      });
-      td.appendChild(del);
+        tr.appendChild(td);    
+        tbody.appendChild(tr);    
+      });    
+      table.appendChild(tbody);    
+      videosArea.innerHTML = '';    
+      videosArea.appendChild(table);    
+    } catch(e){ videosArea.innerHTML = '<div class="error">Error loading videos</div>'; console.error('loadVideos error', e); }    
+  }    
 
-      tr.appendChild(td);
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    pinsArea.innerHTML = '';
-    pinsArea.appendChild(table);
-  }
+  btnGenerate.addEventListener('click', async ()=>{    
+    const note = (noteInput.value || '').slice(0,200);    
+    generateResult.innerText = 'Generating...';    
+    btnGenerate.disabled = true;    
+    try {    
+      const r = await apiFetch('/admin/generate_pin', {    
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ note })    
+      });    
+      const j = await r.json();    
+      if(r.ok && j.success){ generateResult.innerText = 'New PIN: ' + j.pin; noteInput.value=''; loadPins(); await showMessage('New PIN','New PIN: ' + j.pin); }    
+      else { generateResult.innerText = 'Error: ' + (j.error || j.message || 'server'); await showMessage('Error','Failed to generate PIN: ' + (j.error || j.message || 'server')); }    
+    } catch(e){ generateResult.innerText='Network error'; console.error('generate_pin error', e); await showMessage('Network','Network error'); }    
+    btnGenerate.disabled = false;    
+  });    
 
-  // Render videos
-  function renderVideos(){
-    videosCount.innerText = `Showing ${window.latestVideos.length} / ${window.latestVideos.length}`;
-    const j = window.latestVideos.slice();
-    const q = (videosSearch.value||'').toLowerCase().trim();
-    let rows = j;
-    if(q){
-      rows = rows.filter(v => (v.title||'').toLowerCase().includes(q));
-    }
-    rows.sort((a,b)=>{
-      const k = videosState.sortKey;
-      let va = a[k] || '';
-      let vb = b[k] || '';
-      if(k === 'uploaded_at'){ va = a[k] ? Date.parse(a[k]) : 0; vb = b[k] ? Date.parse(b[k]) : 0; }
-      if(va < vb) return -1 * videosState.sortDir;
-      if(va > vb) return 1 * videosState.sortDir;
-      return 0;
-    });
-
-    videosCount.innerText = `Showing ${rows.length} / ${window.latestVideos.length}`;
-    const table = document.createElement('table');
-    table.innerHTML = '<thead><tr><th class="sortable" data-key="id">ID <span class="sort-ind"></span></th><th class="sortable" data-key="title">Title <span class="sort-ind"></span></th><th class="sortable" data-key="uploaded_at">Uploaded <span class="sort-ind"></span></th><th>Action</th></tr></thead>';
-    const tbody = document.createElement('tbody');
-    rows.forEach(v => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${v.id}</td><td>${v.title}</td><td>${v.uploaded_at||''}</td>`;
-      const td = document.createElement('td');
-
-      // NOTE: Play button intentionally removed from admin page per your request.
-      // Keep only Delete button for videos.
-
-      const del = document.createElement('button'); del.className='btn-small btn-muted'; del.style.marginLeft='8px'; del.innerText='Delete';
-      del.addEventListener('click', async ()=>{
-        const ok = confirm('Delete video "' + v.title + '" ?');
-        if(!ok) return;
-        del.disabled = true;
-        try {
-          const rr = await apiFetch('/admin/delete_video', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ video_id: v.id })});
-          const jr = await safeParseJson(rr) || {};
-          if(rr.ok && jr.success){ await showMessage('Info','Deleted'); await loadVideos(); }
-          else { await showMessage('Error','Failed to delete: ' + (jr.error || jr.message || ('status ' + rr.status))); }
-        } catch(err){
-          console.error(err);
-          await showMessage('Network','Network error while deleting video');
-        }
-        del.disabled = false;
-      });
-      td.appendChild(del);
-      tr.appendChild(td);
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    videosArea.innerHTML = '';
-    videosArea.appendChild(table);
-
-    table.querySelectorAll('th.sortable').forEach(th => {
-      th.onclick = ()=>{
-        const key = th.getAttribute('data-key');
-        if(videosState.sortKey === key) videosState.sortDir = -videosState.sortDir; else { videosState.sortKey = key; videosState.sortDir = -1; }
-        table.querySelectorAll('th.sortable .sort-ind').forEach(si => si.innerText = '');
-        const si = th.querySelector('.sort-ind'); si.innerText = videosState.sortDir === -1 ? '▼' : '▲';
-        renderVideos();
-      };
-    });
-  }
-
-  // Load pins & videos from API
-  async function loadPins(){
-    pinsArea.innerText = 'Loading pins...';
-    try {
-      const r = await apiFetch('/admin/pins');
-      if(!r.ok){
-        const jr = await safeParseJson(r);
-        pinsArea.innerHTML = `<div class="error">Failed to load pins: ${jr && jr.error ? jr.error : 'status ' + r.status}</div>`;
-        return;
-      }
-      const j = await r.json();
-      if(!Array.isArray(j)){ pinsArea.innerHTML = '<div class="error">Failed to load pins</div>'; return; }
-      window.latestPins = j;
-      renderPins();
-    } catch(e){ pinsArea.innerHTML = '<div class="error">Error loading pins</div>'; console.error('loadPins error', e); }
-  }
-
-  async function loadVideos(){
-    videosArea.innerText = 'Loading videos...';
-    try {
-      const r = await apiFetch('/videos');
-      if(!r.ok){
-        const jr = await safeParseJson(r);
-        videosArea.innerHTML = `<div class="error">Failed to load videos: ${jr && jr.error ? jr.error : 'status ' + r.status}</div>`;
-        return;
-      }
-      const j = await r.json();
-      if(!Array.isArray(j)){ videosArea.innerHTML = '<div class="error">Failed to load videos</div>'; return; }
-      window.latestVideos = j;
-      renderVideos();
-    } catch(e){ videosArea.innerHTML = '<div class="error">Error loading videos</div>'; console.error('loadVideos error', e); }
-  }
-
-  // Generate pin
-  btnGenerate.addEventListener('click', async ()=>{
-    const note = (noteInput.value || '').slice(0,200);
-    generateResult.innerText = 'Generating...';
-    btnGenerate.disabled = true; showSpinnerOn(btnGenerate);
-    try {
-      const r = await apiFetch('/admin/generate_pin', {
-        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ note })
-      });
-      const j = await safeParseJson(r) || {};
-      if(r.ok && j.success){
-        generateResult.innerText = 'New PIN: ' + j.pin;
-        noteInput.value=''; await loadPins(); await showMessage('New PIN','New PIN: ' + j.pin);
-      } else {
-        generateResult.innerText = 'Error: ' + (j.error || j.message || ('status ' + r.status));
-        await showMessage('Error','Failed to generate PIN: ' + (j.error || j.message || ('status ' + r.status)));
-      }
-    } catch(e){ generateResult.innerText='Network error'; console.error('generate_pin error', e); await showMessage('Network','Network error'); }
-    btnGenerate.disabled = false; hideSpinnerOn(btnGenerate);
-  });
-
-  // Chunked upload helper
-  async function uploadLargeFile(file, title, onProgress = null){
+  // Helper: chunked upload for large files
+  async function uploadLargeFile(file, title, onProgress = null) {
+    // Keep chunk size safe (adjust if your host needs smaller)
     const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     const uploadId = `${Date.now()}_${Math.random().toString(36).slice(2,10)}`;
@@ -486,6 +345,7 @@
 
       const res = await apiFetch('/admin/upload_video_chunk', { method: 'POST', body: fd });
       if (!res.ok) {
+        // try to parse body for message
         let errJson = {};
         try { errJson = await res.json(); } catch(e){}
         throw new Error('Chunk upload failed: ' + (errJson.error || res.status));
@@ -514,88 +374,85 @@
     return finishJson;
   }
 
-  // Upload video (single-request with chunk fallback)
-  btnUpload.addEventListener('click', async ()=>{
-    const title = (videoTitle.value || '').trim(); const file = videoFile.files[0];
-    if(!title || !file){ uploadResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }
-    uploadResult.innerText='Uploading...'; btnUpload.disabled=true; showSpinnerOn(btnUpload);
+  btnUpload.addEventListener('click', async ()=>{    
+    const title = (videoTitle.value || '').trim(); const file = videoFile.files[0];    
+    if(!title || !file){ uploadResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }    
+    uploadResult.innerText='Uploading...'; btnUpload.disabled=true;    
     try {
-      const SINGLE_UPLOAD_LIMIT = 100 * 1024 * 1024; // match frontend threshold to server behavior
+      // If file is small enough, try direct upload first. Otherwise preemptively chunk.
+      const SINGLE_UPLOAD_LIMIT = 100 * 1024 * 1024; // 100MB threshold; keep it consistent with your host limits
       if (file.size <= SINGLE_UPLOAD_LIMIT) {
         const fd = new FormData(); fd.append('title', title); fd.append('video', file);
         const r = await apiFetch('/admin/upload_video', { method:'POST', body: fd });
+        // Handle 413 or server suggesting chunked upload
         if (r.status === 413) {
-          // server says too large -> fallback to chunked
+          // fallback to chunked
           uploadResult.innerText = 'Server rejected single upload. Switching to chunked upload...';
           const result = await uploadLargeFile(file, title, (p)=> {
             uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
           });
           uploadResult.innerText = 'Uploaded ✓';
-          videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
+          videoTitle.value=''; videoFile.value=''; loadVideos();
+          await showMessage('Uploaded','Video uploaded successfully (chunked).');
         } else {
-          const j = await safeParseJson(r) || {};
+          const j = await r.json();
           if (r.ok && j.success) {
-            uploadResult.innerText='Uploaded ✓'; videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully.');
+            uploadResult.innerText='Uploaded ✓'; videoTitle.value=''; videoFile.value=''; loadVideos();
+            await showMessage('Uploaded','Video uploaded successfully.');
           } else if (j && (j.error === 'file_too_large_for_single_request' || j.error === 'file_too_large')) {
-            // server asked to chunk
+            // server asked us to chunk
             uploadResult.innerText = 'Server asks for chunked upload. Uploading in chunks...';
             const result = await uploadLargeFile(file, title, (p)=> {
               uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
             });
             uploadResult.innerText = 'Uploaded ✓';
-            videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
+            videoTitle.value=''; videoFile.value=''; loadVideos();
+            await showMessage('Uploaded','Video uploaded successfully (chunked).');
           } else {
             uploadResult.innerText='Upload failed: ' + (j.error||j.message||'server'); await showMessage('Error','Upload failed: ' + (j.error||j.message||'server'));
           }
         }
-      } else {           // file too big — use chunked upload directly
+      } else {           // file too big — do chunked upload directly
         uploadResult.innerText = 'Uploading in chunks...';
         const result = await uploadLargeFile(file, title, (p)=> {
           uploadResult.innerText = `Uploading chunks: ${p.uploadedChunks}/${p.totalChunks}`;
         });
         uploadResult.innerText = 'Uploaded ✓';
-        videoTitle.value=''; videoFile.value=''; await loadVideos(); await showMessage('Uploaded','Video uploaded successfully (chunked).');
+        videoTitle.value=''; videoFile.value=''; loadVideos();
+        await showMessage('Uploaded','Video uploaded successfully (chunked).');
       }
     } catch(e){
       console.error('upload_video error', e);
-      uploadResult.innerText='Upload failed: ' + (e && e.message ? e.message : '');
+      uploadResult.innerText='Upload failed';
       await showMessage('Upload error', (e && e.message) ? e.message : 'Network error while uploading video');
-    }
-    btnUpload.disabled=false; hideSpinnerOn(btnUpload);
-  });
+    }    
+    btnUpload.disabled=false;    
+  });    
 
-  // Upload any file
-  btnUploadFile.addEventListener('click', async ()=>{
-    const title = (fileTitle.value||'').trim(); const file = anyFile.files[0];
-    if(!title || !file){ uploadFileResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }
-    uploadFileResult.innerText='Uploading...'; btnUploadFile.disabled=true; showSpinnerOn(btnUploadFile);
-    try {
-      const fd = new FormData(); fd.append('title', title); fd.append('file', file);
-      const r = await apiFetch('/admin/upload_file', { method:'POST', body: fd });
-      if(r.status === 413){
-        uploadFileResult.innerText = 'File too large for server. Please reduce file size.';
-        await showMessage('File too large','The server rejected the upload because the file is too large (HTTP 413). Reduce the file size.');
-      } else {
-        const j = await safeParseJson(r) || {};
-        if(r.ok && j.success){ uploadFileResult.innerText='Uploaded ✓'; fileTitle.value=''; anyFile.value=''; await loadVideos(); await showMessage('Uploaded','File uploaded successfully.'); }
-        else { uploadFileResult.innerText='Upload failed: ' + (j.error||j.message||('status ' + r.status)); await showMessage('Error','Upload failed: ' + (j.error||j.message||('status ' + r.status))); }
-      }
-    } catch(e){ uploadFileResult.innerText='Network error'; console.error('upload_file error', e); await showMessage('Network','Network error while uploading file'); }
-    btnUploadFile.disabled=false; hideSpinnerOn(btnUploadFile);
-  });
+  btnUploadFile.addEventListener('click', async ()=>{    
+    const title = (fileTitle.value||'').trim(); const file = anyFile.files[0];    
+    if(!title || !file){ uploadFileResult.innerText='Provide title and file'; await showMessage('Missing','Provide title and file'); return; }    
+    uploadFileResult.innerText='Uploading...'; btnUploadFile.disabled=true;    
+    try {    
+      const fd = new FormData(); fd.append('title', title); fd.append('file', file);    
+      const r = await apiFetch('/admin/upload_file', { method:'POST', body: fd });    
+      const j = await r.json();    
+      if(r.ok && j.success){ uploadFileResult.innerText='Uploaded ✓'; fileTitle.value=''; anyFile.value=''; loadVideos(); await showMessage('Uploaded','File uploaded successfully.'); } else { uploadFileResult.innerText='Upload failed: ' + (j.error||j.message||'server'); await showMessage('Error','Upload failed: ' + (j.error||j.message||'server')); }    
+    } catch(e){ uploadFileResult.innerText='Network error'; console.error('upload_file error', e); await showMessage('Network','Network error while uploading file'); }    
+    btnUploadFile.disabled=false;    
+  });    
 
-  btnRefresh.addEventListener('click', ()=>{ loadPins(); loadVideos(); });
+  btnRefresh.addEventListener('click', ()=>{ loadPins(); loadVideos(); });    
 
-  btnLogout.addEventListener('click', async ()=>{
-    const ok = confirm('Logout admin?'); if(!ok) return;
-    try { await apiFetch('/logout', { method:'POST' }); } catch(e){ console.error('logout error', e); }
-    sessionStorage.removeItem('training_is_admin'); window.location.href = UI_BASE + '/';
-  });
+  btnLogout.addEventListener('click', async ()=>{    
+    const ok = confirm('Logout admin?'); if(!ok) return;    
+    try { await apiFetch('/logout', { method:'POST' }); } catch(e){ console.error('logout error', e); }    
+    sessionStorage.removeItem('training_is_admin'); window.location.href = UI_BASE + '/';    
+  });    
 
-  // Initial load
-  loadPins(); loadVideos();
+  loadPins(); loadVideos();    
 
-})();
-</script>
-</body>
+})();    
+</script> 
+   </body>    
 </html>
