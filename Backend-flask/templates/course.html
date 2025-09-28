@@ -4,46 +4,70 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Courses — Crypto Training</title>
 <link rel="icon" href=" https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg  ">
+
+<!-- hls.js (used when server produced HLS) -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.3/dist/hls.min.js"></script>
+
 <style>
   body{font-family:system-ui;margin:0;background:linear-gradient(180deg,#031025,#071024);color:#e6eef8}
-  header{display:flex;align-items:center;gap:12px;padding:12px;background:linear-gradient(90deg,#06203a,#08304d);}
+  header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px;
+    background:linear-gradient(90deg,#06203a,#08304d);
+  }
   .brand{ display:flex; align-items:center; gap:12px; }
   .logo{height:36px}
   .wrap{padding:18px;max-width:1100px;margin:auto}
   .intro{opacity:0.9;margin-bottom:14px}
   .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
   .card{background:#062035;padding:12px;border-radius:12px;position:relative;overflow:hidden}
-  video{width:100%;border-radius:8px;background:black;display:block;min-height:160px}
+  video{width:100%;border-radius:8px;background:black;display:block}
 
-  .precard {
-    position:absolute; inset:12px; display:flex; align-items:center; justify-content:center; z-index:6;
-    pointer-events:auto;
-  }
-  .precard .panel {
-    width:100%; max-width:720px; background:linear-gradient(180deg,rgba(2,12,23,0.8),rgba(2,8,20,0.75)); border-radius:10px; padding:18px; text-align:center;
-    box-shadow:0 10px 30px rgba(0,0,0,0.6);
-  }
-  .precard .title { font-weight:800; color:#baf7ff; margin-bottom:8px; font-size:1.05rem; }
-  .precard .meta { color:#cfefff; opacity:0.9; font-size:13px; margin-bottom:12px; }
-  .precard .play-btn {
-    padding:10px 16px; border-radius:12px; border:0; font-weight:800; cursor:pointer;
-    background:linear-gradient(90deg,#06b6d4,#0891b2); color:#042a2b; font-size:1rem;
-  }
+  /* small pre-card (thumbnail + meta) */
+  .precard { display:flex; gap:10px; align-items:center; margin-bottom:8px; }
+  .thumb { width:96px; height:64px; background:#000;border-radius:8px; display:flex; align-items:center; justify-content:center; color:#9adbe7; font-weight:800; font-size:12px; overflow:hidden; }
+  .meta { flex:1; font-size:13px; color:#dff8ff; }
+  .meta .title { font-weight:800; color:#bff7ff; margin-bottom:4px; }
+  .meta .small { font-size:12px; opacity:0.85; }
 
-  .status { margin-top:8px; font-size:13px; color:#cfefff; opacity:0.95; }
-  .status.error { color:#ffb4b4; }
+  /* top-right button styling */
+  .header-actions{ margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .top-btn{
+    padding:8px 12px;
+    border-radius:10px;
+    border:0;
+    cursor:pointer;
+    font-weight:800;
+    font-size:0.95rem;
+    background:linear-gradient(90deg,#06b6d4,#0891b2);
+    color:#042a2b;
+    box-shadow:0 8px 20px rgba(0,0,0,0.35);
+  }
+  .top-btn.secondary{ background:linear-gradient(90deg,#4ade80,#16a34a); color:#04210b; }
 
+  /* modal */
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(2,6,23,0.6); display:none; align-items:center; justify-content:center; z-index:9999; }
+  .modal-panel{ background:#0b1220; padding:18px; border-radius:10px; width:92%; max-width:720px; box-shadow:0 12px 40px rgba(0,0,0,0.6); color:#e6eef8 }
+  .modal-title{ font-weight:800; margin-bottom:8px; font-size:1.05rem }
+  .modal-body{ margin-bottom:12px; color:#cfefff; line-height:1.3; max-height:50vh; overflow:auto; white-space:pre-wrap; }
+  .modal-actions{ display:flex; gap:8px; justify-content:flex-end; }
+  .btn-secondary{ background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfefff; padding:8px 10px; border-radius:8px; cursor:pointer }
+  .btn-primary{ background:linear-gradient(90deg,#06b6d4,#0891b2); color:#042a2b; padding:8px 12px; border-radius:8px; font-weight:800; cursor:pointer }
+
+  /* play/pause controls */
   .vp-controls { display:flex; gap:8px; margin-top:8px; align-items:center; }
   .vp-btn { padding:8px 12px; border-radius:8px; border:0; cursor:pointer; font-weight:700; background:#06b6d4; color:#042a2b; }
   .vp-btn.pause { background:#ef4444; color:#fff; }
 
-  .diagnose-btn { background:transparent; border:1px solid rgba(255,255,255,0.06); color:#cfefff; padding:6px 8px; border-radius:8px; cursor:pointer; }
-
-  .debug-log { margin-top:8px; font-family:monospace; font-size:12px; color:#bfefff; white-space:pre-wrap; background:rgba(0,0,0,0.08); padding:8px; border-radius:8px; }
+  .card-actions { margin-top:8px; display:flex; gap:8px; align-items:center; justify-content:space-between; }
+  .status { font-size:13px; opacity:0.9; }
+  .badge { padding:6px 8px; border-radius:8px; background:rgba(255,255,255,0.04); font-weight:700; font-size:12px; }
 
   @media (max-width:720px){
-    .card{padding:10px}
-    .precard .panel { padding:12px; }
+    .encourage-wrap{ grid-template-columns: 1fr; }
+    .encourage-img{ width:100%; height:180px; }
   }
 </style>
 </head>
@@ -53,8 +77,10 @@
     <img src=" https://i.postimg.cc/x1cLbZhh/IMG-20250812-WA0070.jpg" class="logo" alt="logo">
     <div style="font-weight:700">Courses</div>
   </div>
-  <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
-    <button id="topHelpBtn" class="vp-btn">Need Help?</button>
+
+  <!-- Top-right button -->
+  <div class="header-actions">
+    <button id="topHelpBtn" class="top-btn secondary" aria-label="Help">Need Help?</button>
   </div>
 </header>
 
@@ -62,28 +88,48 @@
   <p class="intro">Watch course videos below. We do our best to prevent downloads; however, screen capture protection is limited in web browsers. If you experience playback issues, re-login from the main page.</p>
 </div>
 
+<!-- Grid of videos -->
 <div id="grid" class="grid" aria-live="polite"></div>
 
-<!-- Modal (used only for re-login / critical errors) -->
-<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(2,6,23,0.6);align-items:center;justify-content:center;z-index:9999;">
-  <div style="background:#0b1220;padding:18px;border-radius:10px;width:92%;max-width:520px;color:#e6eef8">
-    <div id="modalTitle" style="font-weight:800;margin-bottom:8px">Title</div>
-    <div id="modalBody" style="margin-bottom:12px;color:#cfefff;"></div>
-    <div style="text-align:right"><button id="modalOk" style="padding:8px 12px;border-radius:8px;border:0;background:#06b6d4;color:#042a2b;cursor:pointer">OK</button></div>
+<!-- Modal (used instead of alerts) -->
+<div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
+  <div class="modal-panel" role="document" aria-live="polite" aria-modal="true">
+    <div class="modal-title" id="modalTitle">Title</div>
+    <div class="modal-body" id="modalBody">Message</div>
+    <div class="modal-actions" id="modalActions">
+      <button class="btn-secondary" id="modalCancel">Cancel</button>
+      <button class="btn-primary" id="modalOk">OK</button>
+    </div>
   </div>
 </div>
 
 <script>
 (async function(){
-  function showModal(title,msg){
-    document.getElementById('modalTitle').innerText = title;
-    document.getElementById('modalBody').innerText = msg;
-    const modal = document.getElementById('modal');
-    modal.style.display = 'flex';
-    return new Promise(res => { document.getElementById('modalOk').onclick = ()=>{ modal.style.display='none'; res(true); }; });
+  // Modal utilities (replaces alert)
+  const backdrop = document.getElementById('modalBackdrop');
+  const titleEl = document.getElementById('modalTitle');
+  const bodyEl = document.getElementById('modalBody');
+  const okBtn = document.getElementById('modalOk');
+  const cancelBtn = document.getElementById('modalCancel');
+  function showModal(title, message, { showCancel=false, okText='OK', cancelText='Cancel' } = {}){
+    titleEl.innerText = title || '';
+    bodyEl.innerText = (typeof message === 'string') ? message : JSON.stringify(message, null, 2);
+    okBtn.innerText = okText;
+    cancelBtn.innerText = cancelText;
+    cancelBtn.style.display = showCancel ? 'inline-block' : 'none';
+    backdrop.style.display = 'flex';
+    backdrop.setAttribute('aria-hidden','false');
+    return new Promise(resolve=>{
+      function cleanup(){ okBtn.removeEventListener('click', onOk); cancelBtn.removeEventListener('click', onCancel); backdrop.style.display='none'; backdrop.setAttribute('aria-hidden','true'); }
+      function onOk(){ cleanup(); resolve(true); }
+      function onCancel(){ cleanup(); resolve(false); }
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+    });
   }
+  const showMessage = (t,m) => showModal(t,m,{showCancel:false,okText:'OK'});
 
-  // fingerprint/device lock (unchanged)
+  // compute fingerprint and optional local lock check (keeps previous behavior)
   async function computeFP(){
     let uuid = localStorage.getItem('training_device_uuid');
     if(!uuid){ uuid = crypto.randomUUID ? crypto.randomUUID() : ('u-'+Math.random().toString(36).slice(2)); localStorage.setItem('training_device_uuid', uuid); }
@@ -96,300 +142,335 @@
   const fp = await computeFP();
   const allowed = localStorage.getItem('training_allowed_device');
   if(allowed && allowed !== fp){
-    await showModal('Device locked','This installation is locked to another device. Please login from the registered device or contact admin.');
+    await showMessage('Device locked','This installation is locked to another device. Please login from the registered device or contact admin.');
     location.href='/'; return;
   }
 
-  // session check on load
-  try {
-    const chk = await (await fetch('/api/check_session', { credentials:'include' })).json();
+  // ensure session active
+  try{
+    const chk = await (await fetch('/api/check_session', {credentials:'include'})).json();
     if(!chk.logged_in){ location.href='/'; return; }
-  } catch(e){
-    console.error('check_session failed', e);
-    await showModal('Error','Unable to verify session. Redirecting to login.'); location.href='/'; return;
+  }catch(e){
+    console.error('check_session failed',e);
+    await showMessage('Error','Unable to verify session. Redirecting to login.'); location.href='/'; return;
   }
 
-  // load videos
-  async function loadVideos(){
-    try {
-      const r = await fetch('/api/videos', { credentials:'include' });
-      if(!r.ok) return [];
-      return await r.json();
-    } catch(e){
-      console.error('loadVideos failed', e);
-      return [];
-    }
-  }
+  // helper to fetch JSON safely
+  async function safeJson(url, opts={}){ try { const r = await fetch(url, opts); if(!r.ok){ return {ok:false,status:r.status, body: await (r.text().then(t=>t))}; } const j = await r.json(); return {ok:true,body:j}; } catch(e){ return {ok:false,error:e}; } }
 
-  // request signed token/url (server validates session)
-  async function requestSignedUrl(videoId){
-    try {
-      const r = await fetch('/api/video_token/' + videoId, { credentials:'include' });
-      if(r.status === 401) return { ok:false, status:401 };
-      if(!r.ok) return { ok:false, status: r.status, body: await r.text() };
-      const j = await r.json();
-      return { ok:true, url: j.url, token: j.token };
-    } catch(e){
-      console.error('requestSignedUrl failed', e);
-      return { ok:false, error:e };
-    }
-  }
-
-  // quick Range-check of signed URL to validate access before wiring <video>
-  // uses Range: bytes=0-0 to prompt a 206 or 200 and prevent false "missing" errors.
-  async function checkSignedUrlReachable(signedUrl){
-    try {
-      const r = await fetch(signedUrl, {
-        method: 'GET',
-        headers: { 'Range': 'bytes=0-0' },
-        // no credentials needed for signed URLs
-      });
-      const out = { status: r.status, ok: r.ok, headers: {} };
-      out.headers['Content-Type'] = r.headers.get('Content-Type');
-      out.headers['Content-Range'] = r.headers.get('Content-Range');
-      out.headers['Accept-Ranges'] = r.headers.get('Accept-Ranges');
-      return out;
-    } catch (e) {
-      console.error('checkSignedUrlReachable failed', e);
-      return { ok:false, error: e };
-    }
-  }
-
-  // helper: more informative log formatting
-  function fmtHeaders(h){
-    let o = [];
-    for(const k of ['Content-Type','Content-Range','Accept-Ranges']){
-      if(h[k]) o.push(`${k}: ${h[k]}`);
-    }
-    return o.join('\\n') || '(no headers)';
-  }
-
-  // pre-card + playback with robust verification & a single safe refresh retry
+  // UI refs
   const grid = document.getElementById('grid');
+  const topHelpBtn = document.getElementById('topHelpBtn');
 
-  const videos = await loadVideos();
-  if(!videos.length){
-    grid.innerHTML = '<div style="opacity:0.8">No videos yet. Admin will upload lessons here.</div>';
-  } else {
+  // track blob URLs to revoke later
+  const createdObjectUrls = new Set();
+
+  // fallback: fetch video as blob and set object URL (used when signed_stream or /stream is required)
+  async function fetchVideoBlobToSrc(videoEl, streamPath) {
+    try {
+      const resp = await fetch(streamPath, { credentials: 'include' });
+      if(!resp.ok) throw new Error('Fetch failed: ' + resp.status);
+      const contentType = resp.headers.get('Content-Type') || 'video/mp4';
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(new Blob([blob], { type: contentType }));
+      createdObjectUrls.add(url);
+      videoEl.src = url;
+      // DO NOT auto-play. User must press Play (gesture).
+      return true;
+    } catch (err) {
+      console.error('fetchVideoBlobToSrc failed', err);
+      return false;
+    }
+  }
+
+  // Setup player pipeline for a single video element + video record
+  async function setupPlayer(videoEl, videoRecord, statusEl){
+    const id = videoRecord.id;
+    statusEl.innerText = 'Checking server...';
+
+    // 1) ask server for diagnose to know if HLS exists or if file missing
+    let diag = null;
+    try {
+      const d = await safeJson(`/api/video_diagnose/${id}`, { credentials: 'include' });
+      if(!d.ok){ statusEl.innerText = `Diagnose failed (${d.status})`; diag = null; }
+      else { diag = d.body.diagnose; }
+    } catch(e){
+      console.error('diagnose fetch error', e);
+      statusEl.innerText = 'Diagnose error';
+    }
+
+    // if diagnose says file missing -> show info and stop
+    if(!diag){
+      statusEl.innerText = 'No diagnosis available';
+    } else if(!diag.exists && diag.candidates && diag.candidates.length>0){
+      statusEl.innerText = 'File missing (candidates found)';
+    } else if(!diag.exists){
+      statusEl.innerText = 'File missing on server';
+    } else {
+      statusEl.innerText = 'Ready';
+    }
+
+    // 2) If HLS exists, prefer HLS
+    const ORIGIN_BASE = location.origin;
+    const hlsUrl = `${ORIGIN_BASE}/hls/${id}/index.m3u8`;
+    if(diag && diag.hls_exists){
+      statusEl.innerText = 'Using HLS';
+      // use hls.js and ensure credentials are sent for segment requests
+      if(window.Hls && Hls.isSupported()){
+        const hls = new Hls({
+          xhrSetup: function(xhr, url) {
+            xhr.withCredentials = true;
+          },
+          // optional tuning
+          maxBufferLength: 30
+        });
+        try {
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(videoEl);
+          videoEl._hls = hls;
+          // ensure video uses playsinline on mobile
+          videoEl.setAttribute('playsinline', '');
+          // DO NOT autoplay — user clicks Play
+          return;
+        } catch(err){
+          console.warn('hls.js attach failed', err);
+          // fallback to native src assignment below
+        }
+      } else {
+        // native HLS (iOS Safari)
+        videoEl.src = hlsUrl;
+        videoEl.setAttribute('playsinline', '');
+        return;
+      }
+    }
+
+    // 3) Otherwise, ask server for signed stream token
+    statusEl.innerText = 'Requesting playback token...';
+    try {
+      const r = await fetch(`/api/video_token/${id}`, { credentials: 'include' });
+      if(!r.ok){
+        // if 401 -> session issue
+        if(r.status === 401){
+          statusEl.innerText = 'Auth required';
+          await showMessage('Login required','Unable to get playback token. Please login again.');
+          location.href = '/'; return;
+        }
+        // try to show body
+        let txt = '';
+        try { txt = await r.text(); } catch(e){ txt = r.status + ''; }
+        statusEl.innerText = `Token request failed (${r.status})`;
+        await showMessage('Playback token failed', `Server response: ${txt}`);
+        return;
+      }
+      const j = await r.json();
+      if(!j.success){
+        statusEl.innerText = 'Token denied';
+        await showMessage('Playback token denied', j.message || JSON.stringify(j));
+        return;
+      }
+      // j.url is the signed_stream relative URL like "/signed_stream/<id>?t=..."
+      const signed = (j.url.startsWith('http') ? j.url : (ORIGIN_BASE + j.url));
+      // set to video src
+      videoEl.src = signed;
+      statusEl.innerText = 'Player attached (signed stream)';
+      return;
+    } catch(err){
+      console.error('video_token error', err);
+      statusEl.innerText = 'Token error';
+      // continue to fallback attempt
+    }
+
+    // 4) Last resort: attempt blob fallback from /stream/<id>
+    statusEl.innerText = 'Attempting fallback fetch...';
+    const fallback = `${ORIGIN_BASE}/stream/${id}`;
+    const ok = await fetchVideoBlobToSrc(videoEl, fallback);
+    if(ok){
+      statusEl.innerText = 'Fallback attached (blob)';
+    } else {
+      statusEl.innerText = 'Playback fallback failed';
+      await showMessage('Playback failed','Playback retry failed. Use Diagnose for details or contact admin.');
+    }
+  }
+
+  // load videos from backend and render
+  async function loadVideos(){
+    const res = await safeJson('/api/videos', { credentials: 'include' });
+    if(res.ok && Array.isArray(res.body)) return res.body;
+    return [];
+  }
+
+  function createVPButtons(videoEl){
+    const wrapper = document.createElement('div');
+    wrapper.className = 'vp-controls';
+
+    const playBtn = document.createElement('button');
+    playBtn.className = 'vp-btn play';
+    playBtn.type = 'button';
+    playBtn.innerText = 'Play';
+
+    const pauseBtn = document.createElement('button');
+    pauseBtn.className = 'vp-btn pause';
+    pauseBtn.type = 'button';
+    pauseBtn.innerText = 'Pause';
+    pauseBtn.style.display = 'none';
+
+    playBtn.addEventListener('click', async ()=>{
+      try {
+        await videoEl.play();
+      } catch (err) {
+        console.warn('play() failed, attempting blob fallback', err);
+        await showMessage('Playback issue','Attempting an alternative playback method. After the retry completes, press Play again.');
+        const streamPath = videoEl.getAttribute('data-src') || videoEl.src || '';
+        // attempt blob fallback
+        const ok = await fetchVideoBlobToSrc(videoEl, streamPath);
+        if(!ok) await showMessage('Playback failed','Unable to play this video. Please re-login or contact admin.');
+      }
+    });
+
+    pauseBtn.addEventListener('click', ()=>{
+      try { videoEl.pause(); } catch(e){ /* ignore */ }
+    });
+
+    // update button visibility on play/pause events
+    videoEl.addEventListener('play', ()=>{ playBtn.style.display='none'; pauseBtn.style.display='inline-block'; });
+    videoEl.addEventListener('pause', ()=>{ pauseBtn.style.display='none'; playBtn.style.display='inline-block'; });
+    videoEl.addEventListener('ended', ()=>{ pauseBtn.style.display='none'; playBtn.style.display='inline-block'; });
+
+    wrapper.appendChild(playBtn);
+    wrapper.appendChild(pauseBtn);
+    return wrapper;
+  }
+
+  function renderVideos(videos){
     grid.innerHTML = '';
-    const ORIGIN = location.origin;
+    if(!Array.isArray(videos) || videos.length===0){
+      grid.innerHTML = '<div style="opacity:0.8">No videos yet. Admin will upload lessons here.</div>'; return;
+    }
+
     videos.forEach(v=>{
-      const card = document.createElement('div'); card.className = 'card';
-      card.style.position = 'relative';
+      const card = document.createElement('div'); card.className='card';
+
+      // Pre-card: small left thumb + meta
+      const prec = document.createElement('div'); prec.className='precard';
+      const thumb = document.createElement('div'); thumb.className='thumb'; thumb.innerText = 'VID';
+      const meta = document.createElement('div'); meta.className='meta';
+      const tit = document.createElement('div'); tit.className='title'; tit.innerText = v.title || 'Untitled';
+      const small = document.createElement('div'); small.className='small'; small.innerText = (v.uploaded_at ? new Date(v.uploaded_at).toLocaleString() : '');
+      meta.appendChild(tit); meta.appendChild(small);
+      prec.appendChild(thumb); prec.appendChild(meta);
+      card.appendChild(prec);
+
+      // Status line
+      const status = document.createElement('div'); status.className='status'; status.innerText = 'Loading status...';
+      card.appendChild(status);
 
       const vid = document.createElement('video');
-      vid.controls = true; vid.preload = 'metadata';
+      vid.controls = true;
       vid.setAttribute('controlsList','nodownload nofullscreen noremoteplayback');
-      vid.style.display = 'block';
-      vid.setAttribute('playsinline','');
+      vid.preload = 'metadata';
+      vid.setAttribute('playsinline', '');
+      // keep original stream path in data attribute for fallback
+      vid.setAttribute('data-video-id', v.id);
 
-      // status area
-      const status = document.createElement('div'); status.className = 'status';
-      status.style.marginTop = '8px';
+      // store the default stream path (for fallback and context)
+      vid.setAttribute('data-src', '/stream/' + v.id);
 
-      // small controls
-      const controls = document.createElement('div'); controls.className = 'vp-controls';
-      const smallPlay = document.createElement('button'); smallPlay.className='vp-btn'; smallPlay.textContent='Play';
-      const pauseBtn = document.createElement('button'); pauseBtn.className='vp-btn pause'; pauseBtn.textContent='Pause'; pauseBtn.style.display='none';
-      const diagnoseBtn = document.createElement('button'); diagnoseBtn.className='diagnose-btn'; diagnoseBtn.textContent='Diagnose';
-      controls.appendChild(smallPlay); controls.appendChild(pauseBtn); controls.appendChild(diagnoseBtn);
-
-      smallPlay.addEventListener('click', async ()=>{ await precardPlay(); });
-      pauseBtn.addEventListener('click', ()=>{ try{ vid.pause(); }catch(e){} });
-
-      vid.addEventListener('play', ()=>{ smallPlay.style.display='none'; pauseBtn.style.display='inline-block'; });
-      vid.addEventListener('pause', ()=>{ pauseBtn.style.display='none'; smallPlay.style.display='inline-block'; });
-
-      // Pre-card overlay
-      const precard = document.createElement('div'); precard.className = 'precard';
-      const panel = document.createElement('div'); panel.className = 'panel';
-      const title = document.createElement('div'); title.className = 'title'; title.innerText = v.title || 'Untitled';
-      const meta = document.createElement('div'); meta.className = 'meta'; meta.innerText = 'Uploaded: ' + (v.uploaded_at || 'unknown');
-      const bigPlay = document.createElement('button'); bigPlay.className = 'play-btn'; bigPlay.innerText = 'Play';
-      panel.appendChild(title); panel.appendChild(meta); panel.appendChild(bigPlay);
-      precard.appendChild(panel);
-
-      // debug area (hidden by default; filled by Diagnose)
-      const debugLog = document.createElement('div'); debugLog.className = 'debug-log'; debugLog.style.display='none';
-
-      bigPlay.addEventListener('click', precardPlay);
-      smallPlay.addEventListener('click', precardPlay);
-
-      // Diagnose button: runs /api/video_token and a Range GET on the signed URL and prints the outcome
-      diagnoseBtn.addEventListener('click', async ()=>{
-        debugLog.style.display='block';
-        debugLog.innerText = 'Running diagnostic...\\n';
-        const tokenRes = await requestSignedUrl(v.id);
-        if(!tokenRes.ok){
-          debugLog.innerText += `token request failed: status=${tokenRes.status || 'network'}\\n`;
-          if(tokenRes.status === 401) debugLog.innerText += '-> token endpoint returned 401: session invalid. Please login.\\n';
-          return;
-        }
-        debugLog.innerText += `token OK. token present. URL: ${tokenRes.url}\\n`;
-        const signedUrl = ORIGIN + tokenRes.url;
-        debugLog.innerText += `signed URL (testing Range GET bytes=0-0)...\\n`;
-        const chk = await checkSignedUrlReachable(signedUrl);
-        if(chk.ok){
-          debugLog.innerText += `Range GET status=${chk.status}\\n${fmtHeaders(chk.headers)}\\n`;
-          if(chk.status === 206 || chk.status === 200){
-            debugLog.innerText += 'Result: stream reachable — should play fine.\\n';
-          } else {
-            debugLog.innerText += 'Result: unexpected status for Range GET.\\n';
-          }
-        } else {
-          debugLog.innerText += `Range GET failed: ${chk.status || 'network'}\\n${chk.error ? chk.error.toString() : ''}\\n`;
-        }
-      });
-
-      async function precardPlay(){
-        if(vid._starting) return;
-        vid._starting = true;
-        vid._errorRetries = 0;
-        status.classList.remove('error'); status.innerText = 'Preparing playback...';
-        // 1) get token
-        let tokenRes = await requestSignedUrl(v.id);
-        if(!tokenRes.ok){
-          if(tokenRes.status === 401){
-            await showModal('Login required','Please login again to watch videos. Redirecting to login.');
-            location.href = '/'; return;
-          }
-          status.classList.add('error'); status.innerText = 'Failed to get playback token. Try re-login.';
-          vid._starting = false; return;
-        }
-        // 2) check signed url reachability with Range GET
-        const signedUrl = ORIGIN + tokenRes.url;
-        let chk = await checkSignedUrlReachable(signedUrl);
-        if(!chk.ok || !(chk.status === 206 || chk.status === 200)){
-          // do one safe retry: request a fresh token and re-check (handles transient races)
-          status.classList.add('note'); status.innerText = 'Initial stream check failed; trying a fresh token...';
-          tokenRes = await requestSignedUrl(v.id);
-          if(!tokenRes.ok){
-            if(tokenRes.status === 401){
-              await showModal('Login required','Please login again to watch videos. Redirecting to login.');
-              location.href = '/'; return;
-            }
-            status.classList.add('error'); status.innerText = 'Failed to refresh playback token.';
-            vid._starting = false; return;
-          }
-          const signed2 = ORIGIN + tokenRes.url;
-          chk = await checkSignedUrlReachable(signed2);
-          if(!chk.ok || !(chk.status === 206 || chk.status === 200)){
-            // definitive failure
-            if(chk.status === 404){
-              status.classList.add('error'); status.innerText = 'Video missing on server.';
-            } else if(chk.status === 401){
-              await showModal('Login required','Please login again to watch videos. Redirecting to login.');
-              location.href = '/'; return;
-            } else {
-              status.classList.add('error'); status.innerText = `Playback unavailable (status ${chk.status || 'network'}).`;
-            }
-            vid._starting = false; return;
-          } else {
-            // great — use this signed2
-            await startPlaybackWithUrl(signed2, vid, status);
-            vid._starting = false; return;
-          }
-        } else {
-          // first signed URL OK
-          await startPlaybackWithUrl(signedUrl, vid, status);
-          vid._starting = false; return;
-        }
-      }
-
-      // helper to set src, load and attempt to play
-      async function startPlaybackWithUrl(signedUrl, videoEl, statusEl){
+      // on play verify session is still active (same as before)
+      vid.addEventListener('play', async function onPlay(){
         try {
-          statusEl.classList.remove('error'); statusEl.innerText = 'Starting playback...';
-          // remove old src/hls
-          try { if(videoEl._hls){ videoEl._hls.destroy(); videoEl._hls = null; } } catch(e){}
-          try { if(videoEl.src && videoEl.src.startsWith('blob:')) URL.revokeObjectURL(videoEl.src); } catch(e){}
-          videoEl.pause();
-          videoEl.removeAttribute('src');
-          videoEl.load();
-          // assign new src and load to make player ready
-          videoEl.src = signedUrl;
-          // call load then user-gesture play (we're in click handler)
-          videoEl.load();
-          await videoEl.play();
-          statusEl.innerText = '';
-        } catch (err) {
-          console.warn('startPlaybackWithUrl: play() failed', err);
-          // In case play() fails, show a friendly inline hint but attempt one recovery via re-requesting token (only when precard play)
-          statusEl.classList.add('error');
-          statusEl.innerText = 'Playback retry failed. Contact admin.';
-        }
-      }
-
-      // resilient error handler for mid-playback errors: attempt single silent token refresh then retry
-      vid._errorRetries = 0;
-      vid.addEventListener('error', async (ev)=>{
-        console.warn('video element error event', ev);
-        if(vid._errorRetries >= 1){
-          status.classList.add('error'); status.innerText = 'Playback failed. If this persists, use Diagnose and contact admin.';
-          return;
-        }
-        vid._errorRetries += 1;
-        status.classList.remove('error'); status.innerText = 'Playback error — attempting to refresh token and retry...';
-        // request a new signed URL, check reachability and use if ok
-        const tokenRes = await requestSignedUrl(v.id);
-        if(!tokenRes.ok){
-          if(tokenRes.status === 401){
-            await showModal('Login required','Please login again to watch videos. Redirecting to login.');
-            location.href = '/'; return;
-          }
-          status.classList.add('error'); status.innerText = 'Unable to refresh token. Contact admin.';
-          return;
-        }
-        const signedUrl = ORIGIN + tokenRes.url;
-        const chk = await checkSignedUrlReachable(signedUrl);
-        if(chk.ok && (chk.status === 206 || chk.status === 200)){
-          // apply new src and try to play
-          try {
-            try { if(vid._hls){ vid._hls.destroy(); vid._hls = null; } } catch(e){}
-            vid.pause(); vid.removeAttribute('src'); vid.load();
-            vid.src = signedUrl;
-            vid.load();
-            setTimeout(async ()=>{
-              try{
-                await vid.play();
-                status.classList.remove('error'); status.classList.add('note'); status.innerText = 'Playback resumed after refresh.';
-              } catch(e){
-                console.warn('play after error-refresh failed', e);
-                status.classList.add('error'); status.innerText = 'Playback retry failed. Contact admin.';
-              }
-            }, 200);
-          } catch(e){
-            console.error('apply new signed url failed', e);
-            status.classList.add('error'); status.classList.add('error'); status.innerText = 'Playback retry failed. Contact admin.';
-          }
-        } else {
-          if(chk.status === 404){
-            status.classList.add('error'); status.innerText = 'Video missing on server.';
-          } else if(chk.status === 401){
-            await showModal('Login required','Please login again to watch videos. Redirecting to login.');
-            location.href = '/'; return;
-          } else {
-            status.classList.add('error'); status.innerText = 'Playback retry failed (network).';
-          }
+          const r = await fetch('/api/check_session', {credentials:'include'});
+          if(!r.ok){ vid.pause(); await showMessage('Login required','Please login again to watch videos.'); location.href='/'; return; }
+          const j = await r.json();
+          if(!j.logged_in){ vid.pause(); await showMessage('Login required','Please login again to watch videos.'); location.href='/'; return; }
+        } catch(e){
+          vid.pause();
+          await showMessage('Error','Session check failed. Redirecting to login.'); location.href='/'; return;
+        } finally {
+          vid.removeEventListener('play', onPlay);
         }
       });
 
-      // assemble card
+      // If browser reports an error on the video element, attempt blob fallback once
+      let triedFallback = false;
+      vid.addEventListener('error', async (ev) => {
+        console.warn('video element error event', ev);
+        if(triedFallback) return;
+        triedFallback = true;
+        await showMessage('Playback issue','Automatic retry: attempting alternative playback method (may take a few seconds). After the retry completes, press Play again.');
+        // Try fetching direct stream or signed_stream fallback
+        const ok = await fetchVideoBlobToSrc(vid, `/stream/${v.id}`);
+        if(!ok){
+          await showMessage('Playback failed','Unable to play this video. Use Diagnose for details or contact admin.');
+        } else {
+          status.innerText = 'Using fallback blob';
+        }
+      });
+
+      // hinder right click/save
+      vid.addEventListener('contextmenu', e => e.preventDefault());
+
       card.appendChild(vid);
-      card.appendChild(precard);
+      // play/pause buttons
+      const controls = createVPButtons(vid);
       card.appendChild(controls);
-      card.appendChild(status);
-      card.appendChild(debugLog);
+
+      // actions row: Diagnose + Delete? (we only add Diagnose here per your request)
+      const actions = document.createElement('div'); actions.className = 'card-actions';
+      const left = document.createElement('div');
+      const right = document.createElement('div');
+
+      const diagBtn = document.createElement('button'); diagBtn.className = 'btn-secondary'; diagBtn.innerText = 'Diagnose';
+      diagBtn.addEventListener('click', async ()=>{
+        diagBtn.disabled = true;
+        try {
+          const r = await safeJson(`/api/video_diagnose/${v.id}`, { credentials: 'include' });
+          if(!r.ok){ await showMessage('Diagnose failed', `HTTP ${r.status}\n${r.body||r.error||''}`); }
+          else { await showMessage('Diagnose result', r.body.diagnose); }
+        } catch(e){
+          console.error('diagnose button error', e);
+          await showMessage('Error','Failed to run diagnose. Check server logs.');
+        }
+        diagBtn.disabled = false;
+      });
+
+      left.appendChild(diagBtn);
+
+      const statusBadge = document.createElement('span'); statusBadge.className='badge'; statusBadge.innerText = 'status';
+      right.appendChild(statusBadge);
+
+      actions.appendChild(left); actions.appendChild(right);
+      card.appendChild(actions);
+
+           // title text area (duplicate small)
+      const t = document.createElement('div'); t.style.marginTop='8px'; t.style.fontWeight='700'; t.innerText = v.title || 'Untitled';
+      card.appendChild(t);
+
       grid.appendChild(card);
+
+      // asynchronously prepare player and update status
+      (async ()=>{
+        try {
+          await setupPlayer(vid, v, status);
+          statusBadge.innerText = status.innerText;
+        } catch(err){
+          console.error('setupPlayer failed', err);
+          status.innerText = 'Setup error';
+          statusBadge.innerText = 'error';
+        }
+      })();
     });
   }
 
-  // top help
-  document.getElementById('topHelpBtn').addEventListener('click', async ()=>{
-    await showModal('Need help','If you need assistance, contact support or reach out to the admin.');
+  // initial load
+  const videos = await loadVideos();
+  renderVideos(videos);
+
+  // top-right button minimal behaviors
+  topHelpBtn.addEventListener('click', async ()=>{
+    await showMessage('Need help','If you need assistance, contact support or reach out to the admin. We are here to help you learn.');
   });
 
-  // UI polish
+  // UX protections & polish
   document.addEventListener('contextmenu', e => {
     const el = e.target;
     if(el && (el.tagName === 'VIDEO' || (el.closest && el.closest('.card')))){
@@ -397,7 +478,13 @@
     }
   });
 
+  // Blur videos when page hidden
   document.addEventListener('visibilitychange', ()=>{ document.querySelectorAll('video').forEach(v=> v.style.filter = document.visibilityState === 'visible' ? 'none' : 'blur(6px)'); });
+
+  // revoke created object URLs when leaving
+  window.addEventListener('beforeunload', ()=>{
+    for(const u of createdObjectUrls) try{ URL.revokeObjectURL(u);}catch(e){}
+  });
 
 })();
 </script>
