@@ -941,7 +941,7 @@ def api_admin_finish_video_upload():
             pass
         return jsonify({"success": False, "error": "assemble_failed", "message": str(exc)}), 500
 
--------------- API: Payment (keep record but do not attempt SMTP sending) ------------
+#-------------- API: Payment (keep record but do not attempt SMTP sending) ------------
 @app.route("/api/payment/proof", methods=["POST"])
 def api_payment_proof():
     name = request.form.get("name", "")
